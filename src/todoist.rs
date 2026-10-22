@@ -458,7 +458,10 @@ pub async fn sync_once(
             .map(|last| last - PULL_BACKOFF)
             .unwrap_or(at - PULL_FALLBACK)
             // A sync disabled for months must not ask for an impossible window.
-            .max(at - PULL_MAX_WINDOW);
+            .max(at - PULL_MAX_WINDOW)
+            // A backward clock jump must not invert the window: Todoist would
+            // answer 400 on every cycle from then on.
+            .min(at - 1);
         match client.completed_since(since, at).await {
             Ok(completed) => {
                 for (todoist_id, completed_at) in completed {
@@ -1123,6 +1126,22 @@ mod tests {
         assert_eq!(stub.total(), 0);
         assert!(report.errors.is_empty());
         assert_eq!(meta(&store, "todoist_sync_at"), Some("4242".to_string()));
+    }
+
+    #[tokio::test]
+    async fn backward_clock_does_not_invert_pull_window() {
+        let stub = Stub::new();
+        let client = client(&stub.serve().await);
+        let store = mem_store();
+        link(&store, "karta", "todo", "t-1");
+
+        sync_once(&store, &client, 10_000).await.unwrap();
+        // Clock jumps back: `last_sync - PULL_BACKOFF` would exceed `until`
+        // and Todoist answers 400 forever. The window must clamp instead.
+        let report = sync_once(&store, &client, 5_000).await.unwrap();
+
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_eq!(meta(&store, "todoist_sync_at").as_deref(), Some("5000"));
     }
 
     #[tokio::test]

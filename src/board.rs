@@ -105,17 +105,27 @@ impl Store {
              CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )?;
         // Additive migration for boards created before Todoist sync existed.
-        let has_todoist: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name='todoist_id'",
-            [],
-            |r| r.get(0),
-        )?;
-        if has_todoist == 0 {
-            conn.execute_batch(
-                "ALTER TABLE tasks ADD COLUMN todoist_id TEXT;
-                 ALTER TABLE tasks ADD COLUMN todoist_state TEXT;
-                 ALTER TABLE tasks ADD COLUMN todoist_seen_at INTEGER NOT NULL DEFAULT 0;",
+        // Each column is checked on its own: an interrupted migration may have
+        // added only some of them, and ALTER would then abort on the first.
+        for (name, ddl) in [
+            ("todoist_id", "ALTER TABLE tasks ADD COLUMN todoist_id TEXT"),
+            (
+                "todoist_state",
+                "ALTER TABLE tasks ADD COLUMN todoist_state TEXT",
+            ),
+            (
+                "todoist_seen_at",
+                "ALTER TABLE tasks ADD COLUMN todoist_seen_at INTEGER NOT NULL DEFAULT 0",
+            ),
+        ] {
+            let exists: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name=?1",
+                [name],
+                |r| r.get(0),
             )?;
+            if exists == 0 {
+                conn.execute(ddl, [])?;
+            }
         }
         conn.execute_batch(
             "CREATE UNIQUE INDEX IF NOT EXISTS tasks_todoist
@@ -1061,6 +1071,46 @@ mod tests {
 
         drop(store);
         cleanup(&path);
+    }
+
+    #[test]
+    fn migration_completes_columns_left_by_interrupted_run() {
+        let path = std::env::temp_dir().join(format!(
+            "omarchy-kanban-mig-partial-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            // Half-migrated: only `todoist_id` was added before the run died.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE tasks(
+                     id TEXT PRIMARY KEY,
+                     title TEXT NOT NULL,
+                     notes TEXT NOT NULL DEFAULT '',
+                     status TEXT NOT NULL,
+                     position REAL NOT NULL,
+                     created_at INTEGER NOT NULL,
+                     updated_at INTEGER NOT NULL,
+                     done_at INTEGER,
+                     archived_at INTEGER,
+                     todoist_id TEXT
+                 );
+                 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO tasks VALUES ('old','stary','', 'todo', 1.0, 5, 5, NULL, NULL, 't-9');",
+            )
+            .unwrap();
+        }
+
+        // Reading the card proves `todoist_state`/`todoist_seen_at` now exist.
+        let store = Store::open(&path).unwrap();
+        let task = store.get("old").unwrap().unwrap();
+        assert_eq!(task.todoist_id.as_deref(), Some("t-9"));
+        assert_eq!(task.todoist_seen_at, 0);
+
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 
     #[test]

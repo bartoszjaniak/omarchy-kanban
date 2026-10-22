@@ -200,7 +200,9 @@ Wejście: `at` (epoch), klient, snapshot linków
 2. **Pull**, tylko jeśli istnieje choć jedna karta `status != done|archived`
    z `todoist_id` (nie ma czego pullować → zero żądań):
    `GET /tasks/completed/by_completion_date?since=<last_sync - 300 s>&until=<at>`,
-   `since = at - 7 dni` gdy brak `last_sync`.
+   `since = at - 7 dni` gdy brak `last_sync`. Okno jest przycinane: nie starsze niż
+   89 dni (`since >= at - 89 dni`) i zawsze `since < until` (odporność na cofnięty
+   zegar; inaczej każde żądanie kończyłoby się `400`).
    Dla każdego ukończenia `(todoist_id, completed_at)`:
    - `completed_at <= todoist_seen_at` → już rozliczone, pomiń;
    - karta nietknięta (`updated_at < last_sync`, a przy braku `last_sync` — zawsze
