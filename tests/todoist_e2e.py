@@ -146,12 +146,22 @@ class FakeTodoist:
 
 def start_core(data_dir, core_port, env):
     data_dir.mkdir(parents=True, exist_ok=True)
-    return subprocess.Popen(
-        [BINARY, "--data-dir", str(data_dir), "serve", "--port", str(core_port)],
-        stdout=open(data_dir / "core.out", "wb"),
-        stderr=open(data_dir / "core.err", "wb"),
-        env=env,
-    )
+    out = open(data_dir / "core.out", "wb")
+    err = open(data_dir / "core.err", "wb")
+    try:
+        process = subprocess.Popen(
+            [BINARY, "--data-dir", str(data_dir), "serve", "--port", str(core_port)],
+            stdout=out,
+            stderr=err,
+            env=env,
+        )
+    except Exception:
+        out.close()
+        err.close()
+        raise
+    process.out_file = out  # close in finally: Popen keeps the fds open
+    process.err_file = err
+    return process
 
 
 def http(port, method, path, body=None, token=None):
@@ -216,6 +226,11 @@ def main():
         def card(todoist_id="t-1"):
             return next(t for t in state()["tasks"] if t.get("todoist_id") == todoist_id)
 
+        def t1_writes():
+            # Only writes naming t-1: a background pull tick cannot add any, so
+            # this is race-free (a global POST/DELETE counter would not be).
+            return [c for c in fake.calls() if c[0] in ("POST", "DELETE") and "t-1" in c[1]]
+
         # 1. Status and candidates on a fresh, linked store.
         status, body = http(port, "GET", "/api/todoist/status", token=token)
         assert status == 200 and body["enabled"] is True, f"status powinien być enabled: {body}"
@@ -265,12 +280,12 @@ def main():
         sync()
         assert len(fake.calls("POST", "/api/v1/tasks/t-1/close")) == 1, "kolejny sync wysłał zbędny close"
 
-        # 6. Deleting a linked card is local only: no outbound write.
-        writes_before = len(fake.calls("POST")) + len(fake.calls("DELETE"))
+        # 6. Deleting a linked card is local only: no outbound write for t-1.
+        writes_before = len(t1_writes())
         status, _ = http(port, "DELETE", f"/api/tasks/{identifier}", token=token)
         assert status == 200, f"DELETE zwrócił HTTP {status}"
-        assert len(fake.calls("POST")) + len(fake.calls("DELETE")) == writes_before, (
-            "usunięcie karty wysłało żądanie do Todoist"
+        assert len(t1_writes()) == writes_before, (
+            f"usunięcie karty wysłało żądanie do Todoist: {t1_writes()[writes_before:]}"
         )
 
         # 7. The token never leaks: cmdline, Core logs, or `todoist status`.
@@ -321,12 +336,17 @@ def main():
         print("OK")
     finally:
         for core in cores:
-            if core.poll() is None:
-                core.send_signal(signal.SIGINT)
-                try:
-                    core.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    core.kill()
+            try:
+                if core.poll() is None:
+                    core.send_signal(signal.SIGINT)
+                    try:
+                        core.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        core.kill()
+                        core.wait(timeout=5)
+            finally:
+                core.out_file.close()
+                core.err_file.close()
         fake.stop()
         fake_off.stop()
         temps.cleanup()

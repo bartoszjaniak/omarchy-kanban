@@ -716,22 +716,30 @@ async fn todoist_import(State(app): State<App>, Json(request): Json<ImportReques
     let at = now();
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
+
+    // Phase 1: network and reads only. A network error aborts the whole
+    // request before a single card is written; a 404 is a plain skip.
+    let mut fetched = Vec::new();
     for id in &request.ids {
         if app.store.lock().unwrap().is_todoist_linked(id)? {
             skipped.push(json!({"id": id, "reason": "already_linked"}));
             continue;
         }
-        // A network error aborts the request; a 404 is a plain skip.
         let Some(remote) = client.get_task(id).await? else {
             skipped.push(json!({"id": id, "reason": "not_found"}));
             continue;
         };
+        fetched.push((id.clone(), remote));
+    }
+
+    // Phase 2: write. A per-card validation error is a skip; the rest run.
+    for (id, remote) in fetched {
         let new = NewTask {
             title: import_title(&remote.content),
             notes: Some(import_note(&remote.description, remote.due.as_deref())),
             status: Some(status.clone()),
         };
-        match app.store.lock().unwrap().add_linked(new, id, at) {
+        match app.store.lock().unwrap().add_linked(new, &id, at) {
             Ok(task) => imported.push(task),
             Err(error) => skipped.push(json!({"id": id, "reason": error.to_string()})),
         }
@@ -822,6 +830,12 @@ pub async fn serve(data_dir: PathBuf, port: u16) -> Result<()> {
     store.maintain(now())?;
     let core_id = store.core_id.clone();
     let todoist_client = todoist::TodoistClient::from_env();
+    // Warn once when the token will be sent to a non-default host. Never the token.
+    if let Ok(url) = std::env::var("TODOIST_API_URL")
+        && url.trim_end_matches('/') != "https://api.todoist.com/api/v1"
+    {
+        eprintln!("Todoist: niestandardowy TODOIST_API_URL — token trafi do tego hosta");
+    }
     match &todoist_client {
         Some(_) => eprintln!("Todoist: włączone"),
         None => eprintln!("Todoist: wyłączone (brak TODOIST_API_TOKEN)"),

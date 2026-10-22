@@ -879,8 +879,23 @@ mod tests {
         StatusCode::NO_CONTENT
     }
 
-    async fn stub_completed(State(stub): State<Arc<Stub>>) -> Response {
+    async fn stub_completed(
+        State(stub): State<Arc<Stub>>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> Response {
         stub.bump("completed");
+        // The pull window is a real contract: a missing or malformed `since`/
+        // `until`, or an empty/inverted range, must fail loudly so window
+        // arithmetic bugs (PULL_BACKOFF/PULL_FALLBACK/PULL_MAX_WINDOW) surface.
+        let (Some(since), Some(until)) = (
+            params.get("since").and_then(|value| parse_iso8601(value)),
+            params.get("until").and_then(|value| parse_iso8601(value)),
+        ) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        if since >= until {
+            return StatusCode::BAD_REQUEST.into_response();
+        }
         if let Some(status) = *stub.completed_status.lock().unwrap() {
             return status.into_response();
         }
@@ -1206,5 +1221,56 @@ mod tests {
         assert_eq!(c.status, "done");
         assert_eq!(c.title, "Mleko");
         assert_eq!(c.notes, "");
+    }
+
+    #[tokio::test]
+    async fn remote_reopen_does_not_revive_done_card() {
+        let stub = Stub::new();
+        let client = client(&stub.serve().await);
+        let store = mem_store();
+        let id = link(&store, "karta", "done", "t-1");
+
+        // Cycle 1: card → DONE closes the task and records `closed`.
+        sync_once(&store, &client, 1_000).await.unwrap();
+        let closed = card(&store, &id);
+        assert_eq!(closed.status, "done");
+        assert_eq!(closed.todoist_state.as_deref(), Some("closed"));
+
+        // Someone reopens the task in Todoist. The board is authoritative for
+        // completion, so the next cycle must not touch the network at all.
+        stub.active.lock().unwrap().insert("t-1".to_string());
+        let before = stub.total();
+        let report = sync_once(&store, &client, 2_000).await.unwrap();
+
+        assert_eq!(stub.total(), before);
+        assert_eq!(report.closed, 0);
+        assert_eq!(report.reopened, 0);
+        let after = card(&store, &id);
+        assert_eq!(after.status, "done");
+        assert_eq!(after.updated_at, closed.updated_at);
+    }
+
+    #[tokio::test]
+    async fn only_changed_cards_are_closed() {
+        let stub = Stub::new();
+        let client = client(&stub.serve().await);
+        let store = mem_store();
+        let done = link(&store, "zrobione", "done", "t-1");
+        let todo = link(&store, "do zrobienia", "todo", "t-2");
+        let todo_before = card(&store, &todo);
+
+        let report = sync_once(&store, &client, 1_000).await.unwrap();
+
+        assert_eq!(report.closed, 1);
+        assert_eq!(report.reopened, 0);
+        assert_eq!(stub.calls("close:t-1"), 1);
+        assert_eq!(stub.calls("close:t-2"), 0);
+        assert_eq!(stub.calls("reopen:t-1"), 0);
+        assert_eq!(stub.calls("reopen:t-2"), 0);
+        assert_eq!(card(&store, &done).todoist_state.as_deref(), Some("closed"));
+        let todo_after = card(&store, &todo);
+        assert_eq!(todo_after.status, "todo");
+        assert_eq!(todo_after.todoist_state.as_deref(), Some("open"));
+        assert_eq!(todo_after.updated_at, todo_before.updated_at);
     }
 }

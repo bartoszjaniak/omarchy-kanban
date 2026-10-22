@@ -196,7 +196,7 @@ omarchy-kanban todoist sync                   # wymuś cykl i pokaż wynik</code
   <h3>7.4 Skrypt tokenu</h3>
   <pre><code>python3 todoist-token.py            # pyta o token (getpass lub stdin), waliduje, instaluje
 python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</code></pre>
-  <p>Skutki: plik <code>~/.config/agent-kanban/todoist.env</code> (<code>0600</code>, katalog <code>0700</code>) z <code>TODOIST_API_TOKEN=…</code>, drop-in <code>~/.config/systemd/user/agent-kanban.service.d/10-todoist.conf</code> z <code>EnvironmentFile=%h/.config/agent-kanban/todoist.env</code>, <code>daemon-reload</code>, <code>restart</code>, health-check i <code>omarchy-kanban todoist status</code>. Token nigdy nie trafia do argv, unit file ani logów.</p>
+  <p>Skutki: plik <code>$XDG_CONFIG_HOME/agent-kanban/todoist.env</code> (<code>0600</code>, katalog <code>0700</code>) z <code>TODOIST_API_TOKEN=…</code>, drop-in <code>$XDG_CONFIG_HOME/systemd/user/agent-kanban.service.d/10-todoist.conf</code> z <code>EnvironmentFile=</code> wskazującym <strong>faktyczną</strong> ścieżkę tego pliku (domyślnie <code>$HOME/.config/agent-kanban/todoist.env</code>; <code>XDG_CONFIG_HOME</code> jest respektowane), <code>daemon-reload</code>, <code>restart</code>, health-check i <code>omarchy-kanban todoist status</code>. Token nigdy nie trafia do argv, unit file ani logów.</p>
 </section>
 
 <section id="przeplywy-danych">

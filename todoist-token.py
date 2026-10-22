@@ -33,7 +33,19 @@ CORE_TOKEN = DATA / "token"
 SERVICE = "agent-kanban.service"
 DEFAULT_BASE = "https://api.todoist.com/api/v1"
 CORE_BASE = "http://127.0.0.1:4765"
-DROPIN_BODY = "[Service]\nEnvironmentFile=%h/.config/agent-kanban/todoist.env\n"
+
+
+def systemd_path(path):
+    """Ścieżka do wpisu EnvironmentFile=; cytuje, gdy zawiera znaki specjalne."""
+    text = str(path)
+    if not any(char.isspace() or char in '"\'\\%#' for char in text):
+        return text
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
+
+
+def dropin_body():
+    """Treść drop-inu z faktyczną ścieżką EnvironmentFile (respektuje XDG_CONFIG_HOME)."""
+    return "[Service]\nEnvironmentFile=" + systemd_path(ENV_FILE) + "\n"
 
 
 def private_write(path, content, dry_run=False):
@@ -42,6 +54,7 @@ def private_write(path, content, dry_run=False):
         print(f"[dry-run] zapisałbym {path} (0600, katalog 0700)")
         return
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)  # mkdir(mode=) podlega umask i nie zaostrza istniejącego katalogu
     temp = path.with_name(path.name + "." + str(uuid.uuid4()))
     with os.fdopen(os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as handle:
         handle.write(content.encode())
@@ -49,12 +62,36 @@ def private_write(path, content, dry_run=False):
 
 
 def run(args, dry_run=False):
-    """Uruchamia komendę systemową; w trybie dry-run tylko ją wypisuje."""
+    """Uruchamia komendę systemową; w dry-run tylko ją wypisuje.
+
+    Zwraca False, gdy systemd jest niedostępny albo zwrócił błąd — zamiast
+    przerywać tracebackiem po zapisaniu/usunięciu plików.
+    """
     printable = " ".join(args)
     if dry_run:
         print(f"[dry-run] {printable}")
-        return
-    subprocess.run(args, check=True)
+        return True
+    try:
+        subprocess.run(args, check=True)
+    except FileNotFoundError:
+        print(f"Brak polecenia `{args[0]}` — nie wykonano `{printable}`.", file=sys.stderr)
+        return False
+    except subprocess.CalledProcessError as error:
+        print(f"`{printable}` zakończyło się kodem {error.returncode}.", file=sys.stderr)
+        return False
+    return True
+
+
+def apply_service(dry_run, state):
+    """Przeładowuje i restartuje usługę; przy braku systemd zwraca False."""
+    if run(["systemctl", "--user", "daemon-reload"], dry_run) and run(
+        ["systemctl", "--user", "restart", SERVICE], dry_run
+    ):
+        return True
+    print("Nie udało się przeładować/zrestartować usługi systemd.", file=sys.stderr)
+    print(state, file=sys.stderr)
+    print("Uruchom ręcznie: systemctl --user daemon-reload && systemctl --user restart " + SERVICE, file=sys.stderr)
+    return False
 
 
 def die(message):
@@ -113,7 +150,7 @@ def health_check(dry_run=False):
                 return True
         except (OSError, ValueError):
             time.sleep(0.25)
-    print("Usługa nie przeszła health-check. Sprawdź journalctl --user -u " + SERVICE, file=sys.stderr)
+    print("Health-check Core nie przeszedł w 10 s.", file=sys.stderr)
     return False
 
 
@@ -134,11 +171,15 @@ def install(base_url, dry_run=False):
     token = read_token()
     validate_token(base_url, token)
     private_write(ENV_FILE, f"TODOIST_API_TOKEN={token}\n", dry_run)
-    private_write(DROPIN, DROPIN_BODY, dry_run)
-    run(["systemctl", "--user", "daemon-reload"], dry_run)
-    run(["systemctl", "--user", "restart", SERVICE], dry_run)
+    private_write(DROPIN, dropin_body(), dry_run)
+    if not apply_service(dry_run, "Pliki zostały zapisane: " + str(ENV_FILE) + ", " + str(DROPIN) + "."):
+        raise SystemExit(1)
     if not health_check(dry_run):
-        return
+        print("Instalacja nie powiodła się: usługa nie przeszła health-check.", file=sys.stderr)
+        print(f"Zapisano: {ENV_FILE} (0600) oraz {DROPIN}.", file=sys.stderr)
+        print("Podgląd logów: journalctl --user -u " + SERVICE + " -n 50", file=sys.stderr)
+        print("Cofnięcie: python3 todoist-token.py --remove", file=sys.stderr)
+        raise SystemExit(1)
     print("Integracja Todoist aktywna.")
     print(f"Token w env usługi ({SERVICE}), plik {ENV_FILE} (0600).")
     print("Aby usunąć: python3 todoist-token.py --remove")
@@ -154,8 +195,13 @@ def remove(dry_run=False):
             else:
                 path.unlink()
             removed.append(path)
-    run(["systemctl", "--user", "daemon-reload"], dry_run)
-    run(["systemctl", "--user", "restart", SERVICE], dry_run)
+    state = (
+        "Pliki zostały usunięte: " + ", ".join(str(path) for path in removed) + "."
+        if removed
+        else "Nie było plików do usunięcia."
+    )
+    if not apply_service(dry_run, state):
+        raise SystemExit(1)
     if removed:
         print("Integracja Todoist wyłączona (usunięto " + ", ".join(str(path) for path in removed) + ").")
     else:

@@ -162,11 +162,13 @@ python3 todoist-token.py            # pyta o token (getpass lub stdin), waliduje
 python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę
 ```
 
-Skutki: plik `~/.config/agent-kanban/todoist.env` (`0600`, katalog `0700`) z
-`TODOIST_API_TOKEN=…`, drop-in `~/.config/systemd/user/agent-kanban.service.d/10-todoist.conf`
-z `EnvironmentFile=%h/.config/agent-kanban/todoist.env`, `daemon-reload`, `restart`,
-health-check i `omarchy-kanban todoist status`. Token nigdy nie trafia do argv,
-unit file ani logów.
+Skutki: plik `$XDG_CONFIG_HOME/agent-kanban/todoist.env` (`0600`, katalog `0700`) z
+`TODOIST_API_TOKEN=…`, drop-in
+`$XDG_CONFIG_HOME/systemd/user/agent-kanban.service.d/10-todoist.conf` z
+`EnvironmentFile=` wskazującym **faktyczną** ścieżkę tego pliku (domyślnie
+`$HOME/.config/agent-kanban/todoist.env`; `XDG_CONFIG_HOME` jest respektowane),
+`daemon-reload`, `restart`, health-check i `omarchy-kanban todoist status`. Token
+nigdy nie trafia do argv, unit file ani logów.
 
 ## 8. Przepływy danych
 
