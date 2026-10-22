@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Kanban</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body>
+<header><div><span class="dot">●</span> AGENT·KANBAN <small>RUST / ACP · v0.2</small></div><div id="connection" role="status">Łączenie…</div></header>
+<main>
+<section id="login-panel" hidden><h1>Połącz z Core</h1><p>Wklej token z pliku <code>token</code> na hoście Core. Nie trafia do adresu URL ani localStorage. Połączenie zdalne wymaga tunelu SSH.</p><form id="login"><label>Token<input type="password" id="token" required autocomplete="off"></label><button>Zaloguj</button></form></section>
+<div id="error" role="alert"></div>
+<div id="pending-command" hidden><p>Wynik poprzedniej komendy nie został potwierdzony. Nie wysyłaj jej ponownie jako nowej operacji.</p><button id="resolve">Sprawdź / ponów tę samą komendę</button></div>
+<div id="application" hidden>
+<div class="toolbar"><button id="new">＋ Zadanie</button><button id="conversation">Rozmowa / retro</button><button id="automations-toggle">Harmonogramy</button><button id="drafts-toggle">Szkice <span id="draft-count">0</span></button><label class="inline">Szukaj<input id="search" type="search"></label><span class="muted">TODO oznacza zgodę na rozpoczęcie pracy na hoście Core.</span></div>
+<div id="board" class="board" aria-label="Kanban"></div>
+<section id="automations" hidden><h2>Automatyzacje</h2><p>Po przestoju Core powstaje jedno aktualne wykonanie. Błąd lub oczekiwanie na akceptację poprzedniego wystąpienia blokuje następne. Ponowne włączenie harmonogramu zaczyna od kolejnego terminu.</p><div id="automation-list"></div></section>
+<section id="drafts" hidden><h2>Lokalne szkice przeglądarki</h2><p>Nie są zadaniami na Core. Są przypisane do tego Core i pozostają tutaj po odłączeniu. Widget ma osobny cache i szkice.</p><div id="draft-list"></div></section>
+<section id="editor" hidden><h2 id="editor-title">Nowe zadanie</h2><form id="task-form"><div class="fields">
+<label>Tytuł<input name="title" required maxlength="160"></label><label>Katalog na Core<input name="cwd" required placeholder="/Users/bart/Projects/app"></label>
+<label>Agent ACP<input name="agent" value="plan" required placeholder="plan / build / własny"></label><label>Model (opcjonalny)<input name="model" placeholder="provider/model"></label>
+<label>Limit czasu aktywnego (s)<input name="timeout_secs" type="number" value="1800" min="10" max="86400" required></label><label>Maks. prób / tur<input name="max_attempts" type="number" value="3" min="1" max="20" required></label>
+<label>Priorytet<input name="priority" type="number" value="0" min="-10" max="10" required></label><label>Typ harmonogramu<select name="schedule_kind"><option value="none">Jednorazowe</option value="daily">Codziennie</option><option value="interval">Co N minut</option></select></label>
+<label>Godzina<input name="time" type="time" value="08:00"></label><label>Strefa IANA<input name="timezone" value="Europe/Warsaw"></label><label>Interwał (min)<input name="minutes" type="number" min="1" value="60"></label>
+</div><label>Instrukcja<textarea name="prompt" rows="5" required></textarea></label><label>Kryteria ukończenia<textarea name="criteria" rows="3" required placeholder="Jak poznamy, że wynik jest prawidłowy?"></textarea></label><p class="notice">Pierwsza wersja zawsze wymaga ręcznej akceptacji wyniku. Agenci korzystają z uprawnień OpenCode skonfigurowanych na Core — to nie jest sandbox. Przed dopuszczeniem TODO sprawdź katalog, agenta i jego politykę.</p><div class="toolbar"><button type="submit">Zapisz do Backlogu / aktywuj harmonogram</button><button type="button" id="save-draft">Zapisz lokalny szkic</button><button type="button" id="close-editor">Zamknij</button></div></form></section>
+<section id="details" hidden><div class="toolbar"><h2 id="task-heading"></h2><button id="close-details">Zamknij kartę</button></div><div id="task-meta" class="muted"></div><div id="task-actions" class="toolbar"></div><details><summary>Instrukcja i kryteria</summary><pre id="task-definition"></pre></details><div id="task-error" role="alert"></div><div id="decision"></div><h3>Wynik / odpowiedź agenta</h3><pre id="result"></pre><form id="message-form"><label>Kolejna wiadomość w tej sesji<textarea id="message" rows="3"></textarea></label><button>Wyślij i dopuść do wykonania</button></form><h3>Ostatnia aktywność</h3><div id="activity"></div></section>
+</div>
+</main><footer>Core jest źródłem prawdy. Zamknięcie UI nie zatrzymuje pracy. Pierwsza wersja do testów — bez automatycznych wdrożeń i wysyłki e-maili.</footer>
+</body></html>

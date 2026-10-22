@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "bart.kanban",
+  "name": "Kanban",
+  "version": "0.4.0",
+  "author": "bart",
+  "description": "Osobista tablica zadań: TODO, In Progress, DONE. Po 48h DONE trafia do ukrytego archiwum.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Kanban",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}
