@@ -49,6 +49,24 @@ omarchy-kanban task rm <id>
 - Tytuł: krótki, rozkazujący, jeden konkretny rezultat. Nie scalaj kilku rzeczy
   w jedno zadanie i nie duplikuj istniejących.
 
+## Todoist — import na tablicę
+
+Gdy użytkownik pyta „co mam dziś zrobić", „przejrzyj Todoist" albo zaczynasz dzień
+pracy:
+
+1. `omarchy-kanban todoist candidates --json` — zadania Todoist na dziś i zaległe,
+   jeszcze niezlankowane.
+2. Dla każdego oceń: **da się zrobić przy tym komputerze?**
+   - tak: kod, pisanie, e-mail, konfiguracja, zakupy online, research;
+   - nie: wizyta, telefon, zakupy w sklepie, cokolwiek w świecie fizycznym,
+     oczekiwanie na kogoś, urządzenie, którego tu nie ma.
+3. Importuj wybrane: `omarchy-kanban todoist import <id>… --status todo`
+   (`doing` dla tego, co zaczynasz od razu). Nie importuj duplikatów — CLI je pomija.
+4. Raportuj krótko: `Zaimportowano: n` + pominięte z jednozdaniowym powodem.
+5. Statusów nie zmieniaj ręcznie w Todoist — przesuń kartę. Sync działa w obie
+   strony: karta na DONE zamyka zadanie, zamknięcie w Todoist przenosi kartę na
+   DONE, powrót karty z DONE otwiera zadanie ponownie.
+
 ## Retencja
 
 `DONE` po 48 godzinach automatycznie przechodzi do statusu `archived` — niewidocznego

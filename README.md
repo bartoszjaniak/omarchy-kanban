@@ -45,10 +45,45 @@ omarchy-kanban task add "Tytuł" --status doing --notes "kontekst"
 omarchy-kanban task move <id> done
 omarchy-kanban task edit <id> --title "…" --notes "…"
 omarchy-kanban task rm <id>
+omarchy-kanban todoist status              # enabled / last_sync / błąd / liczba linków
+omarchy-kanban todoist candidates [--json] # dziś + zaległe z Todoist, do decyzji AI
+omarchy-kanban todoist import <id>… [--status todo|doing|done]
+omarchy-kanban todoist sync                # wymuś cykl synchronizacji
 ```
 
 `<id>` może być unikalnym prefiksem UUID. CLI rozmawia z lokalnym Core po
 `http://127.0.0.1:4765` z tokenem z katalogu danych.
+
+## Todoist (opcjonalnie)
+
+Włączasz jednym skryptem; token nie trafia do repo, argv ani logów:
+
+```sh
+python3 todoist-token.py            # wklej token z Todoist → Ustawienia → Integracje
+python3 todoist-token.py --remove   # wyłącz integrację
+```
+
+Skrypt waliduje token, zapisuje go w `~/.config/agent-kanban/todoist.env` (`0600`)
+i podłącza do usługi drop-inem systemd (`EnvironmentFile=`), potem restartuje Core.
+Zmienna środowiskowa: `TODOIST_API_TOKEN`. Brak tokenu = integracja wyłączona,
+tablica działa normalnie.
+
+Co robi integracja:
+
+- **Import**: AI czyta `todoist candidates` i wciąga na TODO tylko zadania, które da
+  się zrobić przy komputerze. Core sam nic nie importuje.
+- **Statusy w obie strony**: karta → DONE zamyka zadanie w Todoist; zamknięcie
+  w Todoist przenosi kartę na DONE; cofnięcie karty z DONE otwiera zadanie ponownie.
+  Cykl leci co 60 s; ręcznie: `omarchy-kanban todoist sync`.
+- **Konflikt**: wygrywa ręczna zmiana — karta ruszona po ostatniej synchronizacji nie
+  jest nadpisywana przez Todoist.
+- **Usuwanie**: `task rm` usuwa tylko kartę; zadanie w Todoist zostaje.
+- **Czego nie synchronizuje**: tytułów i notatek (tylko statusy), zadań cyklicznych
+  (kolejne wystąpienie nie trafi na tablicę), reopen zrobiony w Todoist nie wskrzesza
+  karty DONE; archiwum (48 h) jest tylko domykane po stronie Todoist.
+
+Stan: `omarchy-kanban todoist status` (`enabled`, `last_sync`, `last_error`, liczba
+linków).
 
 ## Skill dla AI
 
@@ -79,13 +114,16 @@ Wszystkie żądania wymagają nagłówka `Authorization: Bearer <token>`
 ## Dane i testy
 
 - Baza: `~/.local/share/agent-kanban/board.sqlite3` (WAL).
-- Token: `~/.local/share/agent-kanban/token` (sekret).
+- Token Core: `~/.local/share/agent-kanban/token` (sekret).
+- Token Todoist (opcjonalnie): `~/.config/agent-kanban/todoist.env` (`0600`, tylko
+  przez `EnvironmentFile=` usługi).
 - Logi: `journalctl --user -u agent-kanban.service -n 100 --no-pager`.
 
 ```sh
 cargo test --all-targets --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo build --release --locked
+python3 tests/todoist_e2e.py        # import → close → reopen → pull na fałszywym Todoist
 ```
 
 Katalogi `web/`, `tests/` i `README-legacy.md` pochodzą z poprzedniej wersji

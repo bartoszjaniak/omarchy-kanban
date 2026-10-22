@@ -1,5 +1,6 @@
 mod board;
 mod bridge;
+mod todoist;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -7,7 +8,10 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(version, about = "Personal Kanban board: TODO / In Progress / DONE + archive")]
+#[command(
+    version,
+    about = "Personal Kanban board: TODO / In Progress / DONE + archive"
+)]
 struct Cli {
     /// Data directory holding the board database and token.
     #[arg(long, global = true)]
@@ -29,6 +33,11 @@ enum Command {
     Task {
         #[command(subcommand)]
         command: TaskCommand,
+    },
+    /// Todoist integration (status, import candidates, manual sync).
+    Todoist {
+        #[command(subcommand)]
+        command: TodoistCommand,
     },
 }
 
@@ -70,6 +79,29 @@ enum TaskCommand {
     },
     /// Delete a task.
     Rm { id: String },
+}
+
+#[derive(Subcommand)]
+enum TodoistCommand {
+    /// Show integration status.
+    Status,
+    /// List tasks due today or overdue and not yet on the board.
+    Candidates {
+        /// Machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import Todoist tasks as board cards.
+    Import {
+        /// Todoist task ids.
+        #[arg(required = true)]
+        ids: Vec<String>,
+        /// todo (default), doing or done.
+        #[arg(long, default_value = "todo")]
+        status: String,
+    },
+    /// Force one synchronisation cycle and print the report.
+    Sync,
 }
 
 pub fn user_dir(kind: &str) -> PathBuf {
@@ -137,9 +169,8 @@ struct Api {
 impl Api {
     fn connect(data_dir: &Path) -> Result<Self> {
         let identity: Value = serde_json::from_slice(
-            &std::fs::read(data_dir.join("identity.json")).context(
-                "Core nie działa. Uruchom: systemctl --user start agent-kanban.service",
-            )?,
+            &std::fs::read(data_dir.join("identity.json"))
+                .context("Core nie działa. Uruchom: systemctl --user start agent-kanban.service")?,
         )?;
         let port = identity["port"]
             .as_u64()
@@ -184,17 +215,11 @@ fn short(id: &str) -> &str {
 }
 
 fn parse_tasks(state: &Value) -> Result<Vec<board::Task>> {
-    Ok(serde_json::from_value(
-        state["tasks"].clone(),
-    )?)
+    Ok(serde_json::from_value(state["tasks"].clone())?)
 }
 
 fn print_list(tasks: &[board::Task], all: bool) {
-    for (status, label) in [
-        ("todo", "TODO"),
-        ("doing", "IN PROGRESS"),
-        ("done", "DONE"),
-    ] {
+    for (status, label) in [("todo", "TODO"), ("doing", "IN PROGRESS"), ("done", "DONE")] {
         let column: Vec<_> = tasks.iter().filter(|t| t.status == status).collect();
         println!("{label} ({})", column.len());
         for task in column {
@@ -219,7 +244,9 @@ async fn task_command(data_dir: &Path, command: TaskCommand) -> Result<()> {
     let api = Api::connect(data_dir)?;
     match command {
         TaskCommand::List { all, json } => {
-            let state = api.call(reqwest::Method::GET, "/api/state", Value::Null).await?;
+            let state = api
+                .call(reqwest::Method::GET, "/api/state", Value::Null)
+                .await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&state)?);
                 return Ok(());
@@ -240,7 +267,12 @@ async fn task_command(data_dir: &Path, command: TaskCommand) -> Result<()> {
                 return Ok(());
             }
             let task: board::Task = serde_json::from_value(result["task"].clone())?;
-            println!("Dodano {} [{}] {}", short(&task.id), task.status, task.title);
+            println!(
+                "Dodano {} [{}] {}",
+                short(&task.id),
+                task.status,
+                task.title
+            );
         }
         TaskCommand::Move { id, status } => {
             let result = api
@@ -276,16 +308,134 @@ async fn task_command(data_dir: &Path, command: TaskCommand) -> Result<()> {
     Ok(())
 }
 
+/// Human-readable Polish text for the `reason` Core reports when a task is skipped.
+fn skip_reason(reason: &str) -> &str {
+    match reason {
+        "already_linked" => "już na tablicy",
+        "not_found" => "nie znaleziono w Todoist",
+        other => other,
+    }
+}
+
+async fn todoist_command(data_dir: &Path, command: TodoistCommand) -> Result<()> {
+    let api = Api::connect(data_dir)?;
+    match command {
+        TodoistCommand::Status => {
+            let status = api
+                .call(reqwest::Method::GET, "/api/todoist/status", Value::Null)
+                .await?;
+            if status["enabled"].as_bool().unwrap_or(false) {
+                println!("Todoist: włączone");
+            } else {
+                println!("Todoist: wyłączone (brak TODOIST_API_TOKEN)");
+            }
+            match status["last_sync"].as_i64() {
+                Some(at) => println!("Ostatnia synchronizacja: {}", todoist::iso8601(at)),
+                None => println!("Ostatnia synchronizacja: brak"),
+            }
+            if let Some(error) = status["last_error"].as_str() {
+                println!("Błąd: {error}");
+            }
+            println!("Linki: {}", status["linked"].as_u64().unwrap_or(0));
+        }
+        TodoistCommand::Candidates { json } => {
+            let result = api
+                .call(reqwest::Method::GET, "/api/todoist/candidates", Value::Null)
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                return Ok(());
+            }
+            let tasks = result["tasks"].as_array().cloned().unwrap_or_default();
+            println!("TODOIST · dziś i zaległe ({})", tasks.len());
+            if tasks.is_empty() {
+                println!("Brak kandydatów.");
+                return Ok(());
+            }
+            for task in &tasks {
+                let id = task["id"].as_str().unwrap_or("");
+                let due = task["due"].as_str().unwrap_or("—");
+                let content = task["content"].as_str().unwrap_or("");
+                let mut extras = Vec::new();
+                let labels: Vec<&str> = task["labels"]
+                    .as_array()
+                    .map(|values| values.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                if !labels.is_empty() {
+                    extras.push(format!("labels: {}", labels.join(", ")));
+                }
+                let priority = task["priority"].as_i64().unwrap_or(1);
+                if priority > 1 {
+                    extras.push(format!("priority: {priority}"));
+                }
+                let suffix = if extras.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", extras.join(", "))
+                };
+                println!("  {id}  {due}  {content}{suffix}");
+            }
+        }
+        TodoistCommand::Import { ids, status } => {
+            let body = json!({"ids": ids, "status": status});
+            let result = api
+                .call(reqwest::Method::POST, "/api/todoist/import", body)
+                .await?;
+            let imported = result["imported"].as_array().cloned().unwrap_or_default();
+            for task in &imported {
+                let task: board::Task = serde_json::from_value(task.clone())?;
+                println!(
+                    "Dodano {} [{}] {}",
+                    short(&task.id),
+                    task.status,
+                    task.title
+                );
+            }
+            let skipped = result["skipped"].as_array().cloned().unwrap_or_default();
+            for skip in &skipped {
+                let id = skip["id"].as_str().unwrap_or("");
+                let reason = skip["reason"].as_str().unwrap_or("");
+                println!("Pominięto {id}: {}", skip_reason(reason));
+            }
+            println!(
+                "Zaimportowano: {}, pominięto: {}",
+                imported.len(),
+                skipped.len()
+            );
+        }
+        TodoistCommand::Sync => {
+            let report = api
+                .call(reqwest::Method::POST, "/api/todoist/sync", Value::Null)
+                .await?;
+            if report["busy"].as_bool().unwrap_or(false) {
+                println!("Synchronizacja już trwa.");
+                return Ok(());
+            }
+            println!(
+                "Zamknięto: {}, otwarto: {}, przeciągnięto na DONE: {}, odłączono: {}",
+                report["closed"].as_u64().unwrap_or(0),
+                report["reopened"].as_u64().unwrap_or(0),
+                report["pulled"].as_u64().unwrap_or(0),
+                report["unlinked"].as_u64().unwrap_or(0),
+            );
+            for error in report["errors"].as_array().cloned().unwrap_or_default() {
+                if let Some(message) = error.as_str() {
+                    println!("Błąd: {message}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let data_dir = cli
-        .data_dir
-        .clone()
-        .unwrap_or_else(|| user_dir("data"));
+    let data_dir = cli.data_dir.clone().unwrap_or_else(|| user_dir("data"));
     match cli.command.unwrap_or(Command::Serve { port: 4765 }) {
         Command::Serve { port } => board::serve(data_dir, port).await,
         Command::Bridge => bridge::run(data_dir).await,
         Command::Task { command } => task_command(&data_dir, command).await,
+        Command::Todoist { command } => todoist_command(&data_dir, command).await,
     }
 }

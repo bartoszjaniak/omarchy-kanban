@@ -103,12 +103,8 @@ async fn apply(core: &Core, action: Value) -> Result<()> {
             if let Some(position) = action["position"].as_f64() {
                 body["position"] = json!(position);
             }
-            core.task(
-                reqwest::Method::PATCH,
-                format!("/api/tasks/{id}"),
-                body,
-            )
-            .await?;
+            core.task(reqwest::Method::PATCH, format!("/api/tasks/{id}"), body)
+                .await?;
         }
         "edit" => {
             let id = action["id"].as_str().context("Brak id zadania")?;
@@ -160,8 +156,7 @@ pub async fn run(data_dir: PathBuf) -> Result<()> {
         };
         let mut error = None;
         if let Some(line) = line {
-            let action: Value =
-                serde_json::from_str(&line).unwrap_or(json!({"action": "invalid"}));
+            let action: Value = serde_json::from_str(&line).unwrap_or(json!({"action": "invalid"}));
             if let Err(e) = apply(&core, action).await {
                 error = Some(e.to_string());
             }

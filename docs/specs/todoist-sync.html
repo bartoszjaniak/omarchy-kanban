@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+
+<html lang="pl">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Synchronizacja tablicy z Todoist</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#f5f0e8] text-[#1a1a1a] antialiased">
+<header class="sticky top-0 z-50 bg-[#f5f0e8] border-b-2 border-[#1a1a1a] px-4 md:px-8 py-3.5 flex items-center gap-3">
+  <div class="w-5 h-5 bg-[#e63b2e] border border-[#1a1a1a] shrink-0"></div>
+  <span class="font-['Space_Grotesk'] font-bold text-sm md:text-lg tracking-tight uppercase truncate">Synchronizacja tablicy z Todoist</span>
+</header>
+
+<div class="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-12 lg:border-x-2 border-[#1a1a1a]">
+  <!-- Lewa kolumna: indeks dokumentu (budowany automatycznie z sekcji) -->
+  <aside class="lg:col-span-3 border-b-2 lg:border-b-0 lg:border-r-2 border-[#1a1a1a] bg-[#eee9e0] p-6 lg:p-8 sticky lg:top-[57px] self-start lg:h-[calc(100vh-57px)] overflow-y-auto font-['Space_Grotesk']">
+    <div class="flex items-center justify-between pb-3 border-b-2 border-[#1a1a1a] mb-5">
+      <span class="text-xs font-bold tracking-widest uppercase font-mono">Indeks dokumentu</span>
+      <div class="w-2.5 h-2.5 bg-[#0055ff]"></div>
+    </div>
+    <nav class="space-y-1 text-sm font-medium" id="toc-nav" aria-label="Indeks dokumentu"></nav>
+  </aside>
+
+  <!-- Prawa kolumna: dokument -->
+  <main class="lg:col-span-9 p-6 md:p-10 lg:p-12 bg-[#f5f0e8]" id="spec-content">
+    <section class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 md:p-8 shadow-[4px_4px_0px_#1a1a1a]">
+      <h1 class="font-['Space_Grotesk'] text-2xl md:text-4xl font-bold tracking-tight mb-4 leading-tight">Synchronizacja tablicy z Todoist</h1>
+      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Automatyczne odzwierciedlenie statusów między tablicą TODO / In Progress / DONE a Todoist w obie strony. Link 1:1 karta ↔ zadanie, sync w tle co 60 s, konflikt rozstrzygany na korzyść ręcznej zmiany. Import pozostaje decyzją AI.</p>
+    </section>
+
+    <section id="cel-i-uzasadnienie">
+  <h2>Cel i uzasadnienie</h2>
+  <p>Tablica <code>TODO / In Progress / DONE</code> jest jedynym źródłem prawdy o tym, co robimy — ale część zadań użytkownika żyje w Todoist (telefon, współdzielone projekty, zadania cykliczne). Ręczne przepisywanie ich na tablicę to praca, której nikt nie wykonuje regularnie. Efekt: tablica kłamie, a Todoist rośnie w zaległości.</p>
+  <p>Cel: jedno miejsce decyzyjne (tablica) i automatyczne odzwierciedlenie statusów w obie strony. Import nowych zadań pozostaje decyzją AI — tylko ona potrafi ocenić, czy zadanie „kup mleko" da się zrobić na komputerze.</p>
+</section>
+
+<section id="opis-problemu">
+  <h2>Opis problemu</h2>
+  <ul>
+    <li>Zadania z Todoist na dziś i zaległe nie trafiają na tablicę; użytkownik nie wie, co realnie może zrobić przy komputerze.</li>
+    <li>Ukończenie zadania w jednym systemie nie jest widoczne w drugim.</li>
+    <li>Cofnięcie karty z DONE („jednak tego nie zrobiłem") nie przywraca zadania w Todoist.</li>
+    <li>Ręczne kopiowanie tytułów, terminów i statusów jest kosztowne i nieaktualne w ciągu godziny.</li>
+  </ul>
+</section>
+
+<section id="przyjete-rozwiazania">
+  <h2>Przyjęte rozwiązania</h2>
+  <ol>
+    <li><strong>Import przez AI.</strong> Core udostępnia listę kandydatów (zadania Todoist na dziś i zaległe, jeszcze niezlankowane). AI (sesja OpenCode, skill <code>kanban-triage</code>) ocenia, które da się wykonać na komputerze, i importuje je przez CLI. Core nie importuje nic automatycznie.</li>
+    <li><strong>Link 1:1 karta ↔ zadanie Todoist</strong> przez kolumnę <code>tasks.todoist_id</code> (unikalny indeks częściowy). Bez osobnej tabeli mapowań.</li>
+    <li><strong>Stan zdalny i znacznik zdarzeń na karcie:</strong>
+      <ul>
+        <li><code>tasks.todoist_state</code> (<code>open</code> / <code>closed</code>, NULL = brak linku) — ostatni znany stan zadania w Todoist, daje idempotencję <code>close</code>/<code>reopen</code>;</li>
+        <li><code>tasks.todoist_seen_at</code> (epoch, 0 = brak) — znacznik ostatniego <strong>rozliczonego</strong> ukończenia w Todoist (<code>completed_at</code>), żeby nakładające się okna zapytań nie stosowały tego samego zdarzenia dwa razy.</li>
+      </ul></li>
+    <li><strong>Sync w tle w Core</strong> (pętla co 60 s, obok istniejącej pętli archiwizacji). Push przed pullem; sieć nigdy pod lockiem bazy; jeden cykl naraz (single-flight).</li>
+    <li><strong>Konflikt: wygrywa ręczna zmiana.</strong> Jeżeli karta była modyfikowana po ostatniej udanej synchronizacji, Todoist nie nadpisuje jej statusu — zamiast tego stan lokalny jest wypychany (<code>reopen</code>), a zdarzenie ukończenia jest oznaczane jako rozliczone.</li>
+    <li><strong>Archiwum:</strong> karty <code>archived</code> są tylko pushowane (<code>close</code> zaległego zamknięcia), nigdy pullowane — archiwum nie wskrzeszamy.</li>
+    <li><strong>Usuwanie tylko lokalne.</strong> <code>task rm</code> linkowanej karty usuwa ją z tablicy i nie dotyka Todoist (brak mechanizmu usuwania w widgecie, więc to ścieżka CLI).</li>
+    <li><strong>Token wyłącznie ze zmiennej środowiskowej</strong> <code>TODOIST_API_TOKEN</code>. Brak tokenu = integracja wyłączona, Core działa bez zmian.</li>
+    <li><strong>Bez nowych zależności.</strong> Czas w epoch sekundach + własny formatter ISO 8601 UTC (~20 linii).</li>
+    <li><strong>Bez zmian w widgecie.</strong> Link do Todoist nie ma reprezentacji wizualnej; stan integracji widać przez <code>omarchy-kanban todoist status</code>.</li>
+  </ol>
+</section>
+
+<section id="rozwazane-strategie-implementacji">
+  <h2>Rozważane strategie implementacji (bez kodu)</h2>
+  <table>
+    <thead><tr><th>Wariant</th><th>Zalety</th><th>Wady</th><th>Decyzja</th></tr></thead>
+    <tbody>
+      <tr><td>Sync wyłącznie na żądanie (CLI)</td><td>Zero pracy w tle, prosto</td><td>Ukończenie w Todoist nie zmieni karty, dopóki ktoś nie odpali komendy</td><td>odrzucone</td></tr>
+      <tr><td>Core jako pętla w tle</td><td>Działa bez udziału użytkownika i AI</td><td>Trzeba pilnować locków i błędów sieci</td><td><mark>PRZYJĘTE</mark></td></tr>
+      <tr><td>Todoist Sync API (<code>/sync</code>)</td><td>Incrementalny, jeden request</td><td>Format komend, <code>sync_token</code>, więcej stanu klienta</td><td>odrzucone — REST v1 wystarcza</td></tr>
+      <tr><td>REST API v1 (filter + completed + close/reopen)</td><td>Prosty kontrakt, mało stanu</td><td>Brak push-notyfikacji; polling</td><td><mark>PRZYJĘTE</mark></td></tr>
+      <tr><td>Watermark globalny (<code>meta.todoist_sync_at</code>) jako mechanizm decyzyjny</td><td>Jeden licznik</td><td>Gubi zmiany po częściowej awarii; nie odróżnia „zamknięte" od „trzeba zamknąć"</td><td>odrzucone; zostaje wyłącznie jako okno zapytania o ukończenia</td></tr>
+      <tr><td>Tylko watermark per karta, bez <code>todoist_state</code></td><td>Jeden mechanizm</td><td>Nie odróżnia „już zamknięte" od „trzeba zamknąć" → close w pętli</td><td>odrzucone; potrzebne oba</td></tr>
+      <tr><td>Automatyczny import wszystkich „dziś/zaległe"</td><td>Zero decyzji</td><td>Tablica zapełnia się zadaniami, których nie da się zrobić przy komputerze</td><td>odrzucone (decyzja użytkownika)</td></tr>
+      <tr><td>LLM wywoływany z Core</td><td>Pełna autonomia</td><td>Drugi klucz API, koszt, opóźnienia, brak kontroli</td><td>odrzucone</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="wzorce-architektoniczne">
+  <h2>Wzorce architektoniczne</h2>
+  <ul>
+    <li><strong>Snapshot → sieć → zapis.</strong> Jedno krótkie zajęcie <code>Mutex&lt;Store&gt;</code> na odczyt, żądania HTTP bez locka, jedno krótkie zajęcie na zapis. <code>std::sync::Mutex</code> i <code>rusqlite</code> są synchroniczne; guard nie może przeżyć <code>.await</code>.</li>
+    <li><strong>Maszyna stanów per karta</strong> zamiast porównywania zegarów: <code>(status lokalny, todoist_state)</code> → akcja; <code>todoist_seen_at</code> → czy zdarzenie zdalne już rozliczone.</li>
+    <li><strong>Idempotentne przejścia.</strong> Powtórzony cykl nie wysyła drugi raz tego samego <code>close</code>/<code>reopen</code>; powtórzone okno zapytania nie stosuje drugi raz ukończenia.</li>
+    <li><strong>Compare-and-set na statusie.</strong> Pull zapisuje status tylko wtedy, gdy karta nie zmieniła się od snapshotu (<code>WHERE updated_at = &lt;snapshot&gt;</code>). Zapis stanu zdalnego (<code>todoist_state</code>) nie jest CAS-owany — to metadana o Todoist, nie decyzja użytkownika.</li>
+    <li><strong>Single-flight.</strong> Pętla i endpoint <code>POST /api/todoist/sync</code> współdzielą <code>tokio::sync::Mutex</code>; drugi wywołujący dostaje <code>busy</code> zamiast drugiego cyklu.</li>
+    <li><strong>Częściowy unikalny indeks</strong> <code>tasks(todoist_id) WHERE todoist_id IS NOT NULL</code> blokuje podwójny import tego samego zadania.</li>
+    <li><strong>Miękka degradacja.</strong> Brak tokenu, brak sieci, 401, 429, 5xx: integracja milczy, Core i tablica działają dalej; błąd widoczny w <code>todoist status</code> i logu.</li>
+  </ul>
+</section>
+
+<section id="architektura">
+  <h2>Architektura</h2>
+  <figure>
+    <figcaption>Schemat architektoniczny: przepływ danych</figcaption>
+    <svg viewBox="0 0 960 300" role="img" style="min-width:760px">
+      <defs>
+        <pattern id="bh-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.2" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
+        </pattern>
+        <marker id="bh-arrow" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
+        </marker>
+      </defs>
+      <rect width="960" height="300" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
+      <rect width="960" height="300" fill="url(#bh-grid)"></rect>
+      <g transform="translate(30, 40)">
+        <rect width="560" height="235" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="560" height="24" fill="#1a1a1a"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">CORE // omarchy-kanban serve</text>
+        <text x="14" y="58" fill="#1a1a1a" font-size="9">axum router — /api/state, /api/tasks… (istniejące)</text>
+        <text x="14" y="76" fill="#0055ff" font-size="9">— /api/todoist/{status,candidates,import,sync}  ← nowe</text>
+        <text x="14" y="94" fill="#1a1a1a" font-size="9">retention_loop (60 s, istnieje)</text>
+        <rect x="14" y="104" width="280" height="26" fill="#ffcc00" stroke="#1a1a1a" stroke-width="1"></rect>
+        <text x="20" y="121" fill="#1a1a1a" font-size="9">todoist_loop (60 s) → snapshot → zapis</text>
+        <text x="14" y="168" fill="#1a1a1a" font-size="9" font-weight="bold">Store (SQLite)</text>
+        <text x="14" y="186" fill="#1a1a1a" font-size="9">tasks + todoist_id, todoist_state, todoist_seen_at</text>
+        <text x="14" y="204" fill="#1a1a1a" font-size="9">meta: todoist_sync_at, todoist_last_error</text>
+        <path d="M 294 117 L 294 150" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#bh-arrow)"></path>
+      </g>
+      <path d="M 590 120 L 640 120" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow)"></path>
+      <text x="596" y="110" fill="#1a1a1a" font-size="9" font-weight="bold">HTTPS +
+
+Bearer</text>
+      <g transform="translate(645, 40)">
+        <rect width="285" height="235" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="285" height="24" fill="#0055ff"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">TODOIST // api.todoist.com</text>
+        <text x="14" y="58" fill="#1a1a1a" font-size="9">/api/v1 — filter</text>
+        <text x="14" y="76" fill="#1a1a1a" font-size="9">completed, close, reopen</text>
+        <text x="14" y="150" fill="#1a1a1a" font-size="9" font-weight="bold">CLI omarchy-kanban</text>
+        <text x="14" y="168" fill="#1a1a1a" font-size="9">todoist … (AI przez shell)</text>
+        <text x="14" y="186" fill="#1a1a1a" font-size="9">widget Omarchy (bez zmian)</text>
+      </g>
+      <rect x="30" y="285" width="900" height="2" fill="#1a1a1a"></rect>
+    </svg>
+  </figure>
+  <p>Nowe/zmienione pliki:</p>
+  <table>
+    <thead><tr><th>Plik</th><th>Zmiana</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/todoist.rs</code></td><td>nowy: klient REST v1, <code>iso8601</code>, <code>sync_once</code>, testy ze stubem</td></tr>
+      <tr><td><code>src/board.rs</code></td><td>migracja kolumn, pola w <code>Task</code>, <code>add()</code> z jawną listą kolumn, metody Store, 4 endpointy, pętla sync</td></tr>
+      <tr><td><code>src/main.rs</code></td><td>podkomendy <code>todoist status|candidates|import|sync</code></td></tr>
+      <tr><td><code>todoist-token.py</code></td><td>nowy skrypt: token → <code>EnvironmentFile</code> + drop-in systemd</td></tr>
+      <tr><td><code>skill/kanban-triage/SKILL.md</code></td><td>sekcja importu z Todoist</td></tr>
+      <tr><td><code>README.md</code></td><td>dokumentacja integracji, tokenu, ograniczeń</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="api-interfejs">
+  <h2>API / Interfejs</h2>
+  <h3>7.1 API Core (wymaga <code>Authorization: Bearer &lt;token Core&gt;</code>, Host = loopback)</h3>
+  <table>
+    <thead><tr><th>Metoda</th><th>Ścieżka</th><th>Treść / odpowiedź</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/todoist/status</code></td><td><code>{enabled, last_sync, last_error, linked}</code></td></tr>
+      <tr><td>GET</td><td><code>/api/todoist/candidates</code></td><td><code>{tasks:[{id, content, description, due, labels, priority, project_id}]}</code> — na dziś i zaległe, bez już zlinkowanych</td></tr>
+      <tr><td>POST</td><td><code>/api/todoist/import</code></td><td><code>{"ids":["…"],"status":"todo"}</code> → <code>{imported:[task], skipped:[{id,reason}]}</code></td></tr>
+      <tr><td>POST</td><td><code>/api/todoist/sync</code></td><td>wymusza cykl → <code>{closed, reopened, pulled, unlinked, errors:[…]}</code> lub <code>{busy:true}</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>7.2 API Todoist (v1, <code>TODOIST_API_URL</code> nadpisywalny dla testów)</h3>
+  <table>
+    <thead><tr><th>Metoda</th><th>Ścieżka</th><th>Użycie</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/tasks/filter?query=today%20%7C%20overdue&amp;limit=200&amp;cursor=…</code></td><td>kandydaci do importu</td></tr>
+      <tr><td>GET</td><td><code>/tasks/{id}</code></td><td>import: autorytatywne dane zadania</td></tr>
+      <tr><td>GET</td><td><code>/tasks/completed/by_completion_date?since=…&amp;until=…&amp;limit=200&amp;cursor=…</code></td><td>pull ukończeń</td></tr>
+      <tr><td>POST</td><td><code>/tasks/{id}/close</code></td><td>karta → DONE</td></tr>
+      <tr><td>POST</td><td><code>/tasks/{id}/reopen</code></td><td>karta wraca z DONE</td></tr>
+    </tbody>
+  </table>
+  <p>Paginacja kursorowa: <code>limit=200</code>, dopóki <code>next_cursor != null</code>. Limit dostawcy: 1000 żądań / 15 min — nasz cykl to 1–3 żądania.</p>
+  <blockquote data-tone="warn"><strong>Kontrakt odpowiedzi</strong><p><code>close</code>/<code>reopen</code> mogą zwrócić <code>200</code> <strong>lub <code>204</code> bez ciała</strong> — sukces czytamy ze statusu HTTP, ciało parsujemy tylko przy błędzie. <code>close</code> już zamkniętego zadania (<code>400</code>) traktujemy jak sukces (<code>state='closed'</code>); <code>reopen</code> nieaktywnego/cyklicznego (<code>400</code>) jak sukces (<code>state='open'</code>); <code>404</code> = zadanie zniknęło → odlinkowanie. <code>401</code>/<code>429</code>/<code>5xx</code>/timeout = błąd cyklu.</p></blockquote>
+
+  <h3>7.3 CLI</h3>
+  <pre><code>omarchy-kanban todoist status                 # enabled / last_sync / błąd / liczba linków
+omarchy-kanban todoist candidates [--json]    # dziś + zaległe, do decyzji AI
+omarchy-kanban todoist import &lt;id&gt; [&lt;id&gt;…] [--status todo|doing|done]
+omarchy-kanban todoist sync                   # wymuś cykl i pokaż wynik</code></pre>
+
+  <h3>7.4 Skrypt tokenu</h3>
+  <pre><code>python3 todoist-token.py            # pyta o token (getpass lub stdin), waliduje, instaluje
+python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</code></pre>
+  <p>Skutki: plik <code>~/.config/agent-kanban/todoist.env</code> (<code>0600</code>, katalog <code>0700</code>) z <code>TODOIST_API_TOKEN=…</code>, drop-in <code>~/.config/systemd/user/agent-kanban.service.d/10-todoist.conf</code> z <code>EnvironmentFile=%h/.config/agent-kanban/todoist.env</code>, <code>daemon-reload</code>, <code>restart</code>, health-check i <code>omarchy-kanban todoist status</code>. Token nigdy nie trafia do argv, unit file ani logów.</p>
+</section>
+
+<section id="przeplywy-danych">
+  <h2>Przepływy danych</h2>
+  <h3>8.1 Import (AI)</h3>
+  <ol>
+    <li><strong>AI:</strong> <code>omarchy-kanban todoist candidates --json</code>.</li>
+    <li><strong>Core:</strong> <code>GET /tasks/filter?query=today | overdue</code>, wszystkie strony; odrzuca id już zlinkowane; zwraca listę.</li>
+    <li><strong>AI ocenia</strong> każde zadanie: „da się zrobić przy komputerze?" (tak → import; nie → pomija i mówi użytkownikowi dlaczego).</li>
+    <li><strong>AI:</strong> <code>omarchy-kanban todoist import &lt;id&gt;…</code>.</li>
+    <li><strong>Core:</strong> dla każdego id <code>GET /tasks/{id}</code> (404 → <code>skipped</code>), tworzy kartę <code>status=todo</code> (lub wskazany), <code>notes</code> = opis + <code>Termin: …</code> gdy jest, <code>todoist_id</code>, <code>todoist_state='open'</code>, <code>todoist_seen_at=now</code>. Duplikat → <code>skipped: already_linked</code>.</li>
+  </ol>
+
+  <h3>8.2 Cykl synchronizacji (<code>sync_once(at)</code>)</h3>
+  <p>Wejście: <code>at</code> (epoch), klient, snapshot linków <code>(id, todoist_id, status, updated_at, todoist_state, todoist_seen_at)</code> oraz <code>last_sync</code> z <code>meta</code>.</p>
+  <figure>
+    <figcaption>Cykl synchronizacji: push → pull → zapis</figcaption>
+    <svg viewBox="0 0 900 290" role="img" style="min-width:760px">
+      <defs>
+        <pattern id="bh-grid-3" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.2" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
+        </pattern>
+        <marker id="bh-arrow-3" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
+        </marker>
+      </defs>
+      <rect width="900" height="290" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
+      <rect width="900" height="290" fill="url(#bh-grid-3)"></rect>
+      <g transform="translate(20, 40)">
+        <rect width="180" height="180" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="180" height="24" fill="#1a1a1a"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">01 // SNAPSHOT</text>
+        <text x="12" y="52" fill="#1a1a1a" font-size="9">odczyt linków</text>
+        <text x="12" y="70" fill="#1a1a1a" font-size="9">krótkie zajęcie</text>
+        <text x="12" y="88" fill="#1a1a1a" font-size="9">locka &lt;Store&gt;</text>
+        <text x="12" y="130" fill="#1a1a1a" font-size="9">bez await pod</text>
+        <text x="12" y="148" fill="#1a1a1a" font-size="9">guardem</text>
+      </g>
+      <path d="M 200 130 L 250 130" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
+      <text x="206" y="120" fill="#1a1a1a" font-size="9" font-weight="bold">linki</text>
+      <g transform="translate(255, 30)">
+        <rect width="220" height="200" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="220" height="24" fill="#ffcc00"></rect>
+        <text x="10" y="16" fill="#1a1a1a" font-size="10" font-weight="bold">02 // PUSH</text>
+        <text x="14" y="58" fill="#1a1a1a" font-size="9">done|archived → close</text>
+        <text x="14" y="76" fill="#1a1a1a" font-size="9">todo|doing → reopen</text>
+        <text x="14" y="94" fill="#1a1a1a" font-size="9">404 → odlinkuj</text>
+        <text x="14" y="112" fill="#1a1a1a" font-size="9">bez locka (reqwest)</text>
+        <rect x="14" y="136" width="190" height="26" fill="#eee9e0" stroke="#1a1a1a" stroke-width="1"></rect>
+        <text x="20" y="153" fill="#1a1a1a" font-size="9">błąd karty nie przerywa</text>
+      </g>
+      <path d="M 475 130 L 525 130" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
+      <text x="482" y="120" fill="#1a1a1a" font-size="9" font-weight="bold"></text>
+      <path d="M 525 130 L 525 170 L 600 170" fill="none" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
+      <text x="525" y="125" fill="#1a1a1a" font-size="9" font-weight="bold">stan</text>
+      <g transform="translate(605, 30)">
+        <rect width="250" height="200" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="250" height="24" fill="#0055ff"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">03 // PULL</text>
+        <text x="14" y="58" fill="#1a1a1a" font-size="9">by_completion_date</text>
+        <text x="14" y="76" fill="#1a1a1a" font-size="9">since = last_sync − 300 s</text>
+        <text x="14" y="94" fill="#1a1a1a" font-size="9">sealed przez seen_at</text>
+        <text x="14" y="112" fill="#1a1a1a" font-size="9">karta nietknięta → done</text>
+        <text x="14" y="130" fill="#1a1a1a" font-size="9">ruszona → reopen</text>
+        <text x="14" y="160" fill="#1a1a1a" font-size="9">zero kart → zero żądań</text>
+      </g>
+      <path d="M 855 130 L 880 130" fill="none" stroke="#1a1a1a" stroke-width="1.5"></path>
+      <text x="610" y="245" fill="#1a1a1a" font-size="9"></text>
+      <text x="30" y="272" fill="#1a1a1a" font-size="9" font-weight="bold">ZAPIS: jedna transakcja — status CAS (WHERE updated_at = snapshot), todoist_state i seen_at bezwarunkowo, meta.todoist_sync_at tylko gdy brak błędów</text>
+    </svg>
+  </figure>
+  <ol>
+    <li><strong>Push</strong> (karty <code>todo|doing|done</code>, oraz <code>archived</code> — tylko w tę stronę):
+      <ul>
+        <li><code>status ∈ {done, archived}</code> + <code>state != closed</code> → <code>POST close</code> → <code>state='closed'</code></li>
+        <li><code>status ∈ {todo, doing}</code> + <code>state == closed</code> → <code>POST reopen</code> → <code>state='open'</code></li>
+        <li><code>404</code> → odlinkuj (karta zostaje), <code>errors</code> += wpis</li>
+        <li><code>400</code> → odpowiednio <code>closed</code>/<code>open</code> (już w tym stanie), bez błędu</li>
+        <li>błąd jednej karty nie przerywa cyklu; reszta kart leci dalej</li>
+      </ul></li>
+    <li><strong>Pull</strong>, tylko jeśli istnieje choć jedna karta <code>status != done|archived</code> z <code>todoist_id</code> (nie ma czego pullować → zero żądań): <code>GET /tasks/completed/by_completion_date?since=&lt;last_sync - 300 s&gt;&amp;until=&lt;at&gt;</code>, <code>since = at - 7 dni</code> gdy brak <code>last_sync</code>. Dla każdego ukończenia <code>(todoist_id, completed_at)</code>:
+      <ul>
+        <li><code>completed_at &lt;= todoist_seen_at</code> → już rozliczone, pomiń;</li>
+        <li>karta nietknięta (<code>updated_at &lt; last_sync</code>, a przy braku <code>last_sync</code> — zawsze „nietknięta") → <code>status='done'</code>, <code>done_at=at</code>, <code>state='closed'</code>, <code>todoist_seen_at=completed_at</code>;</li>
+        <li>karta ruszona ręcznie po <code>last_sync</code> → wygrywa tablica: <code>POST reopen</code>, <code>state='open'</code>, <code>todoist_seen_at=completed_at</code> (zdarzenie rozliczone, nie wróci).</li>
+      </ul></li>
+    <li><strong>Zapis</strong> (jedna transakcja): statusy i <code>done_at</code> przez compare-and-set (<code>WHERE id=? AND updated_at=&lt;snapshot updated_at&gt;</code>); <code>todoist_state</code> i <code>todoist_seen_at</code> bezwarunkowo; <code>unlink</code>; <code>meta.todoist_sync_at = at</code> tylko gdy cykl nie zwrócił błędów; <code>meta.todoist_last_error</code> ustawiany/wyczyszczony.</li>
+    <li><strong>Log</strong> tylko przy zmianach lub błędach (bez tokenu).</li>
+  </ol>
+
+  <h3>8.3 Przejścia i przypadki brzegowe</h3>
+  <table>
+    <thead><tr><th>Sytuacja</th><th>Zachowanie</th></tr></thead>
+    <tbody>
+      <tr><td>Karta → DONE</td><td>close w Todoist, <code>state='closed'</code></td></tr>
+      <tr><td>Karta DONE → TODO/In Progress</td><td>reopen w Todoist, <code>state='open'</code></td></tr>
+      <tr><td>Zamknięte w Todoist, karta nietknięta</td><td>karta → DONE (retencja 48 h działa dalej)</td></tr>
+      <tr><td>Zamknięte w Todoist, karta ruszona po ostatnim sync</td><td>reopen w Todoist, zdarzenie oznaczone jako rozliczone</td></tr>
+      <tr><td>To samo ukończenie widoczne w kolejnym oknie</td><td><code>todoist_seen_at</code> blokuje powtórne zastosowanie</td></tr>
+      <tr><td>Zadanie usunięte w Todoist</td><td>karta zostaje, link usunięty, wpis w błędach</td></tr>
+      <tr><td>Karta w archiwum</td><td>tylko push <code>close</code>; nigdy pull</td></tr>
+      <tr><td>Zadanie cykliczne</td><td>close zamyka wystąpienie; karta zostaje DONE, brak pętli dzięki <code>state='closed'</code>; reopen może przesunąć termin — ograniczenie w README</td></tr>
+      <tr><td>Podwójny import</td><td>unikalny indeks + <code>skipped: already_linked</code></td></tr>
+      <tr><td>Brak tokenu</td><td><code>enabled=false</code>, zero żądań wychodzących</td></tr>
+      <tr><td>401 / 429 / 5xx / timeout / brak sieci</td><td>cykl kończy się błędem, <code>last_sync</code> nie rośnie, następny tick ponawia; tablica działa</td></tr>
+      <tr><td>Karta zmieniona w trakcie cyklu</td><td>zapis statusu pominięty (compare-and-set), stan zdalny zapisany</td></tr>
+      <tr><td>Ręczne <code>POST /api/todoist/sync</code> w trakcie cyklu</td><td><code>{busy:true}</code>, bez równoległego cyklu</td></tr>
+      <tr><td>Brak tokenu w trakcie działania (usunięty drop-in)</td><td>po restarcie usługi <code>enabled=false</code>; linki zostają w bazie</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="wymagania-niefunkcjonalne">
+  <h2>Wymagania niefunkcjonalne</h2>
+  <ul>
+    <li><strong>Bezpieczeństwo:</strong> token tylko w env usługi (drop-in + <code>EnvironmentFile</code> 0600); brak tokenu w argv, URL, logach i odpowiedziach HTTP; nowe endpointy rejestrowane przed <code>.layer(guard)</code>, więc podlegają Bearer + loopback Host.</li>
+    <li><strong>Odporność:</strong> żaden błąd sieci nie może zatrzymać Core ani pętli; timeout żądania 10 s, połączenie 5 s; <code>MissedTickBehavior::Skip</code>.</li>
+    <li><strong>Locki:</strong> brak <code>await</code> pod <code>MutexGuard</code>; jedno zajęcie locka na odczyt, jedno na zapis.</li>
+    <li><strong>Współbieżność:</strong> jeden cykl naraz (<code>tokio::sync::Mutex</code> + <code>try_lock</code>).</li>
+    <li><strong>Wydajność:</strong> jeden cykl = 1–3 żądania HTTP poza push/pull; bez N+1.</li>
+    <li><strong>Zależności:</strong> zero nowych w <code>Cargo.toml</code> (<code>Cargo.lock</code> bez zmian).</li>
+    <li><strong>Zgodność wstecz:</strong> <code>tasks</code> dostaje kolumny przez <code>ALTER TABLE</code> przy <code>Store::open</code>; stare karty nietknięte, <code>todoist_*</code> NULL/0; <code>add()</code> przechodzi na jawną listę kolumn; <code>row()</code>/<code>SELECT</code> obejmują nowe pola; widget bez zmian (nieznane pola ignoruje).</li>
+    <li><strong>Język:</strong> komunikaty CLI po polsku, kod i testy po angielsku (jak reszta repo).</li>
+    <li><strong>Formatowanie:</strong> <code>cargo fmt --check</code> oraz <code>cargo clippy -D warnings</code> czyste.</li>
+  </ul>
+</section>
+
+<section id="strategia-testowania">
+  <h2>Strategia testowania i przypadki testowe</h2>
+  <p>Stub Todoist jako serwer axum na <code>127.0.0.1:0</code> w <code>#[cfg(test)] mod tests</code> w <code>src/todoist.rs</code> (crate jest bin-only, więc <code>tests/*.rs</code> nie zaimportuje modułów). Base URL wstrzykiwany do <code>TodoistClient::new</code>; stub waliduje metodę, ścieżkę, <code>Authorization</code> i ciało żądania. Czas sterowany wartością <code>at</code> przekazywaną do <code>sync_once</code> oraz SQL-em w testach (jak <code>retention_only_archives_old_done</code>).</p>
+  <table>
+    <thead><tr><th>#</th><th>Przypadek</th><th>Poziom</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Migracja istniejącej bazy: kolumny dodane, dane zachowane, <code>add()</code> działa</td><td>Rust, <code>board</code></td></tr>
+      <tr><td>2</td><td>Import tworzy kartę z linkiem, notatką i <code>state='open'</code></td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>3</td><td>Powtórzony import → <code>already_linked</code>, brak duplikatu</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>4</td><td>Karta → DONE wysyła <code>close</code> raz; asercja <code>state='closed'</code>; drugi cykl bez żądania</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>5</td><td>Karta z DONE → TODO wysyła <code>reopen</code></td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>6</td><td>Ukończenie w Todoist → karta DONE, <code>done_at=at</code>, <code>state='closed'</code></td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>7</td><td>Konflikt: karta ruszona po <code>last_sync</code> → <code>reopen</code>, status lokalny zachowany, zdarzenie nie wraca w kolejnym cyklu</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>8</td><td>Sekwencja na jednym linku: import → close → reopen (trzy cykle)</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>9</td><td>Dwie karty: jedna <code>done</code>, druga nietknięta → jedno żądanie <code>close</code>, zero dla drugiej</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>10</td><td><code>404</code> na jednej karcie nie przerywa cyklu: druga dostaje <code>close</code>, <code>errors</code> ma 1 wpis</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>11</td><td><code>400</code> na reopen (cykliczne) → <code>state='open'</code>, brak błędu</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>12</td><td><code>429</code>/<code>5xx</code>/connection refused → błąd zapisany, <code>last_sync</code> bez zmian, Core żyje</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>13</td><td>Karta archiwalna + <code>state='open'</code> → <code>close</code>, ale pull jej nie tyka</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>14</td><td>Brak tokenu → <code>enabled=false</code>, zero żądań</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>15</td><td>Paginacja kandydatów: 2 strony zebrane</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>16</td><td><code>iso8601</code>: 0, epoka, rok przestępny (3 asercje)</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>17</td><td>Pull pominięty, gdy nie ma kart do pullowania → zero żądań</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>18</td><td>Tytuł/notatki nie są synchronizowane (zmiana w Todoist nie rusza karty)</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>19</td><td>Reopen w Todoist nie wskrzesza karty DONE (brak żądania, karta bez zmian)</td><td>Rust, <code>todoist</code></td></tr>
+      <tr><td>20</td><td>Token nieobecny w <code>cmdline</code>, stderr/logu i <code>todoist status</code></td><td>proces, <code>tests/e2e.py</code></td></tr>
+      <tr><td>21</td><td>Bonus: migracja na kopii realnej <code>board.sqlite3</code></td><td>ręcznie, przed commitem</td></tr>
+    </tbody>
+  </table>
+  <p>Bramka jakości (komendy CI, nie przypadki testowe):</p>
+  <pre><code>cargo fmt --check
+cargo test --all-targets --locked
+cargo clippy --all-targets --locked -- -D warnings
+cargo build --release --locked
+git diff --exit-code Cargo.lock          # zero nowych zależności</code></pre>
+  <blockquote data-tone="warn"><strong>Świadomie nie testujemy</strong><p>serwera Todoist, ich silnika zadań cyklicznych, każdego wariantu 5xx osobno, 60-sekundowej pętli (testujemy <code>sync_once</code>), widgetu, składni filtra <code>today | overdue</code> (ryzyko zewnętrzne).</p></blockquote>
+</section>
+
+<section id="decyzje-uzytkownika">
+  <h2>Decyzje użytkownika</h2>
+  <ol>
+    <li><strong>Import tylko przez AI/CLI</strong> — Core nie importuje automatycznie; AI decyduje, które zadania „da się zrobić na komputerze".</li>
+    <li><strong>Konflikt: wygrywa ręczna zmiana</strong> — karta ruszona po ostatniej synchronizacji nie jest nadpisywana przez Todoist.</li>
+    <li><strong>Usuwanie:</strong> brak mechanizmu usuwania w widgecie; <code>task rm</code> linkowanej karty usuwa ją tylko lokalnie, bez DELETE w Todoist.</li>
+    <li><strong>Repozytorium:</strong> projekt nie był w gicie; założone repo, stan wyjściowy w commicie bazowym, praca na <code>feature/todoist-sync</code>.</li>
+    <li><strong>Klucz API:</strong> przez zmienną środowiskową, ustawianą przygotowanym skryptem (<code>todoist-token.py</code>), bez wpisywania sekretu do repozytorium.</li>
+  </ol>
+</section>
+
+<section id="otwarte-pytania">
+  <h2>Otwarte pytania i decyzje</h2>
+  <ul>
+    <li><strong>Zadania cykliczne:</strong> po <code>close</code> Todoist przesuwa termin wystąpienia. Karta zostaje DONE, więc kolejne wystąpienie nie trafi na tablicę automatycznie. Świadome ograniczenie (test #11 pilnuje braku błędu i pętli).</li>
+    <li><strong>Edycja tytułu/notatek</strong> nie jest synchronizowana w żadną stronę — tylko statusy (test #18).</li>
+    <li><strong>Reopen wykonany w Todoist</strong> nie wskrzesza karty DONE — tablica jest autorytatywna dla stanu ukończenia (test #19).</li>
+    <li><strong>Składnia filtra <code>today | overdue</code></strong> jest zewnętrznym kontraktem dostawcy; 400 z API trafi do <code>todoist status</code>, kandydaci będą puste. Nie testujemy.</li>
+  </ul>
+</section>
+
+<section id="runda-recenzji">
+  <h2>Runda recenzji</h2>
+  <p>Runda recenzji: <mark data-tone="info">2</mark></p>
+</section>
+
+    <footer class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 shadow-[4px_4px_0px_#1a1a1a] flex flex-wrap items-center justify-between gap-4 font-['Space_Grotesk']">
+      <span class="font-mono text-xs uppercase text-[#1a1a1a]/70">Synchronizacja tablicy z Todoist</span>
+      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="docs/specs/todoist-sync.md">Źródło: docs/specs/todoist-sync.md</a>
+    </footer>
+  </main>
+</div>
+
+<!-- Komentarze: dymek edycyjny (pozycja wyliczana przy kliknieciu) -->
+<div id="sc-bubble" hidden role="dialog" aria-label="Komentarz do elementu">
+  <div class="sc-bubble-head">
+    <span class="sc-bubble-title">Komentarz</span>
+    <button id="sc-close" type="button" title="Zamknij (Esc)" aria-label="Zamknij">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+  </div>
+  <textarea id="sc-input" placeholder="Treść komentarza..." aria-label="Treść komentarza"></textarea>
+  <div class="sc-bubble-actions">
+    <button id="sc-delete" type="button" hidden title="Usuń ten komentarz" aria-label="Usuń komentarz">
+      <span class="material-symbols-outlined">delete</span>
+    </button>
+    <span class="sc-hint">Enter = zapisz · Shift+Enter = nowa linia</span>
+    <button id="sc-save" type="button" title="Zapisz komentarz (Enter)" aria-label="Zapisz komentarz">
+      <span class="material-symbols-outlined">check</span>
+    </button>
+  </div>
+</div>
+
+<!-- Komentarze: indykatory istniejacych komentarzy (pozycje wyliczane w JS) -->
+<div id="sc-markers"></div>
+
+<!-- Komentarze: licznik (klik = kopiuj JSON do schowka) -->
+<div id="sc-widget">
+  <button id="sc-count" type="button" hidden></button>
+</div>
+<div id="sc-toast" role="status" aria-live="polite" hidden></div>
+
+<!-- ================== KONIEC TRESCI ==================
+     Powyzej konczy sie tresc dokumentu. Ponizszy blok stylow i skrypt pochodza w calosci
+     z szablonu. NIE EDYTUJ i NIE CZYTAJ go przy generowaniu podgladu. ================== -->
+<style>
+  /* Paleta: krem #f5f0e8 | panel #eee9e0 | karta #ffffff | tusz #1a1a1a
+     akcenty: żółty #ffcc00 | niebieski #0055ff | czerwony #e63b2e
+     Zasady: brak zaokrągleń, obramowania 2px, twardy cień offsetowy (shadow-[4px_4px_0px_#1a1a1a]). */
+  html, body { margin: 0; padding: 0; }
+  body { overscroll-behavior: none; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #1a1a1a; }
+  ::selection { background: #ffcc00; color: #1a1a1a; }
+  /* Style ponizej sa celowo w czystym CSS - elementy nawigacji naglowkow sekcji dokladane sa przez JS
+     po starcie Tailwind JIT (dynamiczne klasy moga nie zostac skompilowane). */
+  .sec-head { display: flex; align-items: center; gap: .75rem; border-bottom: 2px solid #1a1a1a; padding-bottom: .5rem; }
+  .sec-dot { width: 1rem; height: 1rem; border: 1px solid #1a1a1a; flex: none; }
+  .sec-num { font-family: "JetBrains Mono", monospace; font-weight: 700; margin-right: .5rem; }
+  .toc-item { display: block; padding: .375rem .625rem; border-left: 2px solid transparent; color: rgba(26,26,26,.8); transition: all .15s; }
+  .toc-item:hover { border-left-color: #1a1a1a; background: #f5f0e8; }
+  .toc-item.is-active { border-left-color: #1a1a1a; background: #f5f0e8; color: #1a1a1a; font-weight: 700; }
+  /* --- WARSTWA SEMANTYCZNA (obowiazujaca) ---
+     Agent pisze CZYSTY HTML bez klas - te reguly styluja elementy wewnatrz #spec-content.
+     Jedyne sygnaly, jakie moze dodac, to id sekcji oraz atrybut data-tone (danger|warn|info|neutral|ink). */
+  #spec-content { display: flex; flex-direction: column; gap: 3rem; }
+  #spec-content section { display: flex; flex-direction: column; gap: 1rem; }
+  #spec-content h2 { margin: 0; font-family: "Space_Grotesk", sans-serif; font-weight: 700; font-size: 1.5rem; line-height: 2rem; letter-spacing: -.01em; text-transform: uppercase; }
+  #spec-content h3 { margin: 0; font-family: "Space_Grotesk", sans-serif; font-weight: 700; font-size: 1rem; text-transform: uppercase; letter-spacing: .02em; }
+  #spec-content h4 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .8125rem; text-transform: uppercase; letter-spacing: .06em; color: rgba(26,26,26,.75); }
+  #spec-content p, #spec-content li { margin: 0; font-family: "Inter", sans-serif; font-size: .9375rem; line-height: 1.7; color: rgba(26,26,26,.92); }
+  #spec-content ul, #spec-content ol { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: .375rem; }
+  #spec-content ul { list-style: square; }
+  #spec-content ol > li::marker { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  #spec-content strong { font-weight: 600; }
+  #spec-content a { color: #1a1a1a; text-decoration: underline; text-underline-offset: 3px; }
+  #spec-content a:hover { background: #ffcc00; }
+  #spec-content hr { width: 100%; margin: 0; border: 0; border-top: 2px solid #1a1a1a; }
+  #spec-content code { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .8125em; background: #eee9e0; border: 1px solid #1a1a1a; padding: 0 .25rem; }
+  #spec-content mark { background: #ffcc00; border: 1px solid #1a1a1a; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+  #spec-content mark[data-tone="danger"] { background: #e63b2e; color: #ffffff; }
+  #spec-content mark[data-tone="info"] { background: #0055ff; color: #ffffff; }
+  #spec-content mark[data-tone="neutral"] { background: #eee9e0; }
+  #spec-content mark[data-tone="ink"] { background: #1a1a1a; color: #ffffff; }
+  #spec-content blockquote { margin: 0; border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content blockquote[data-tone="danger"] { background: #e63b2e; color: #ffffff; }
+  #spec-content blockquote[data-tone="warn"] { background: #ffcc00; }
+  #spec-content blockquote[data-tone="ink"] { background: #1a1a1a; color: #ffffff; }
+  #spec-content blockquote > p:first-child > strong:first-child,
+  #spec-content blockquote > strong:first-child { display: block; margin-bottom: .25rem; font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #spec-content .table-wrap { border: 2px solid #1a1a1a; background: #ffffff; overflow-x: auto; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif; font-size: .8125rem; text-align: left; }
+  #spec-content thead th { padding: .75rem; background: #1a1a1a; color: #ffffff; font-family: "Space_Grotesk", sans-serif; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+  #spec-content tbody td { padding: .75rem; border-top: 2px solid #1a1a1a; vertical-align: top; }
+  #spec-content tbody tr:hover { background: #f5f0e8; }
+  #spec-content tbody td:first-child { font-weight: 600; }
+  #spec-content pre { position: relative; margin: 0; padding: 1.25rem; overflow-x: auto; border: 2px solid #1a1a1a; background: #1a1a1a; color: #e2ddd4; box-shadow: 4px 4px 0 #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .8125rem; line-height: 1.6; }
+  #spec-content pre code { background: none; border: 0; padding: 0; font-size: inherit; font-weight: 400; color: inherit; }
+  #spec-content pre .copy-btn { position: absolute; top: .5rem; right: .5rem; border: 1px solid rgba(255,255,255,.25); background: #262626; color: #ffcc00; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; cursor: pointer; }
+  #spec-content pre .copy-btn:hover { background: #ffcc00; color: #1a1a1a; }
+  #spec-content figure { margin: 0; border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content figcaption { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  #spec-content figure svg { width: 100%; height: auto; font-family: "JetBrains Mono", monospace; }
+  #spec-content figure ul { flex-direction: row; flex-wrap: wrap; gap: 1rem; margin-top: .75rem; padding: .5rem 0 0; border-top: 1px solid #1a1a1a; list-style: none; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  #spec-content figure ul li { display: flex; align-items: center; gap: .375rem; font-size: .75rem; }
+  #spec-content ul:has(> li > input[type="checkbox"]) { padding-left: 0; list-style: none; gap: .75rem; }
+  #spec-content li:has(> input[type="checkbox"]) { display: flex; align-items: flex-start; gap: .75rem; }
+  #spec-content input[type="checkbox"] { margin-top: .25rem; width: 1rem; height: 1rem; flex: none; accent-color: #1a1a1a; }
+  #spec-content .checklist-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+  #spec-content .checklist-head .count { background: #ffcc00; border: 1px solid #1a1a1a; padding: .125rem .625rem; }
+  /* --- Warstwa klas: LEGACY (utrzymana tylko dla dokumentow wygenerowanych wczesniej).
+     Nowe dokumenty nie uzywaja klas - patrz warstwa semantyczna powyzej. */
+  .card { border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  .card.tight { padding: 1rem; box-shadow: 3px 3px 0 #1a1a1a; }
+  .card.ink { background: #1a1a1a; color: #ffffff; }
+  .card.danger { background: #e63b2e; color: #ffffff; }
+  .card.warn { background: #ffcc00; color: #1a1a1a; }
+  .label { font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .label.out { color: rgba(26,26,26,.6); }
+  .title { font-family: "Space_Grotesk", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: -.01em; }
+  .prose { font-family: "Inter", sans-serif; font-size: .9375rem; line-height: 1.7; color: rgba(26,26,26,.92); }
+  .prose strong { font-weight: 600; }
+  code.ic { font-family: "JetBrains Mono", monospace; font-weight: 700; background: #eee9e0; border: 1px solid #1a1a1a; padding: 0 .25rem; }
+  .grid-2 { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  .grid-3 { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 768px) { .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .chip { display: inline-block; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; }
+  .chip.k { background: #1a1a1a; color: #ffffff; }
+  .chip.y { background: #ffcc00; color: #1a1a1a; border: 1px solid #1a1a1a; }
+  .chip.b { background: #0055ff; color: #ffffff; }
+  .chip.r { background: #e63b2e; color: #ffffff; }
+  .chip.n { background: #eee9e0; color: #1a1a1a; border: 1px solid #1a1a1a; }
+  .table-wrap { border: 2px solid #1a1a1a; background: #ffffff; overflow-x: auto; box-shadow: 4px 4px 0 #1a1a1a; }
+  .tbl { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif; font-size: .8125rem; text-align: left; }
+  .tbl thead th { background: #1a1a1a; color: #ffffff; font-family: "Space_Grotesk", sans-serif; font-weight: 700; text-transform: uppercase; font-size: .75rem; padding: .75rem; }
+  .tbl tbody td { padding: .75rem; border-top: 2px solid #1a1a1a; vertical-align: top; }
+  .tbl tbody tr:hover { background: #f5f0e8; }
+  .tbl td.k { font-weight: 600; }
+  .tbl td.v { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  .tbl td.n { font-family: "JetBrains Mono", monospace; font-size: .75rem; color: rgba(26,26,26,.75); }
+  .metric { font-family: "JetBrains Mono", monospace; font-size: 1.5rem; font-weight: 700; }
+  .codeblock { border: 2px solid #1a1a1a; background: #1a1a1a; color: #ffffff; box-shadow: 4px 4px 0 #1a1a1a; }
+  .cb-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .625rem 1rem; background: #262626; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .codeblock pre { margin: 0; padding: 1.25rem; overflow-x: auto; font-family: "JetBrains Mono", monospace; font-size: .8125rem; line-height: 1.6; color: #e2ddd4; }
+  .figure { border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  .figure-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .figure svg { width: 100%; height: auto; font-family: "JetBrains Mono", monospace; }
+  .figure .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .75rem; padding-top: .5rem; border-top: 1px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+  .step { display: flex; gap: 1rem; }
+  .step .n { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  .checklist { display: flex; flex-direction: column; gap: .75rem; font-family: "Inter", sans-serif; font-size: .875rem; }
+  .checklist label { display: flex; gap: .75rem; align-items: flex-start; cursor: pointer; }
+  .checklist .sub { display: block; font-family: "JetBrains Mono", monospace; font-size: .75rem; color: rgba(26,26,26,.7); }
+  .check-item { margin-top: .25rem; width: 1rem; height: 1rem; accent-color: #1a1a1a; }
+  /* --- Komentarze: indykatory + dymek + licznik --- */
+  #sc-widget { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 60; }
+  #sc-widget button, #sc-bubble button, .sc-marker { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-family: inherit; border: 2px solid #1a1a1a; }
+  #sc-widget .material-symbols-outlined, #sc-bubble .material-symbols-outlined, .sc-marker .material-symbols-outlined { line-height: 1; }
+  #sc-count { height: 2.5rem; padding: 0 .75rem; gap: .375rem; background: #ffcc00; color: #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .875rem; font-weight: 700; box-shadow: 3px 3px 0 #1a1a1a; }
+  #sc-count:hover { background: #f5f0e8; }
+  #sc-count .material-symbols-outlined { font-size: 1.125rem; }
+  [hidden] { display: none !important; }
+  #sc-markers { position: absolute; top: 0; left: 0; width: 100%; height: 0; z-index: 55; pointer-events: none; }
+  .sc-marker { position: absolute; width: 1.5rem; height: 1.5rem; background: #ffcc00; color: #1a1a1a; box-shadow: 2px 2px 0 #1a1a1a; pointer-events: auto; }
+  .sc-marker:hover { background: #0055ff; color: #ffffff; }
+  .sc-marker .material-symbols-outlined { font-size: .9375rem; }
+  #sc-bubble { position: fixed; z-index: 65; width: min(24rem, calc(100vw - 2rem)); background: #ffffff; border: 2px solid #1a1a1a; box-shadow: 4px 4px 0 #1a1a1a; padding: .75rem; display: flex; flex-direction: column; gap: .625rem; }
+  .sc-bubble-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 2px solid #1a1a1a; padding-bottom: .5rem; }
+  .sc-bubble-title { font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #sc-close { width: 1.75rem; height: 1.75rem; background: #eee9e0; color: #1a1a1a; border-width: 1.5px; }
+  #sc-close:hover { background: #1a1a1a; color: #ffffff; }
+  #sc-close .material-symbols-outlined { font-size: 1.125rem; }
+  #sc-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 5rem; border: 2px solid #1a1a1a; padding: .5rem .625rem; font-family: "Inter", sans-serif; font-size: .875rem; line-height: 1.375rem; color: #1a1a1a; background: #f5f0e8; }
+  #sc-input:focus { outline: 3px solid #0055ff; outline-offset: -3px; }
+  .sc-bubble-actions { display: flex; align-items: center; gap: .5rem; }
+  .sc-hint { flex: 1; font-family: "JetBrains Mono", monospace; font-size: .625rem; line-height: .875rem; text-transform: uppercase; letter-spacing: .04em; color: rgba(26,26,26,.6); }
+  #sc-save { width: 2.25rem; height: 2.25rem; background: #1a1a1a; color: #ffffff; }
+  #sc-save:hover { background: #0055ff; }
+  #sc-save .material-symbols-outlined { font-size: 1.25rem; }
+  #sc-delete { width: 2.25rem; height: 2.25rem; background: #e63b2e; color: #ffffff; }
+  #sc-delete:hover { background: #1a1a1a; }
+  #sc-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 70; max-width: calc(100vw - 2rem); background: #1a1a1a; color: #ffffff; border-left: 6px solid #ffcc00; padding: .625rem 1rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 500; }
+  @media print { header, aside, [data-copy], #sc-widget, #sc-bubble, #sc-toast, #sc-markers { display: none !important; } .lg\:col-span-3 { display: none !important; } .lg\:col-span-9 { grid-column: span 12 / span 12 !important; } }
+</style>
+<script>
+  // 1. Indeks dokumentu + naglowki sekcji (kolorowy kwadrat, numer, linia) - budowane z sekcji.
+  const ACCENTS = ['#ffcc00', '#0055ff', '#e63b2e'];
+  const sections = Array.from(document.querySelectorAll('#spec-content section[id]'));
+  const toc = document.getElementById('toc-nav');
+  sections.forEach((section, index) => {
+    const h2 = section.querySelector('h2');
+    if (!h2) return;
+    // Numeracja zrodla ("1. Tytul") jest usuwana - numer generuje szablon, zeby nie bylo "01. 1. Tytul".
+    const rawTitle = h2.textContent;
+    const label = rawTitle.replace(/^\s*\d+\s*[.)]\s*/, '').trim();
+    if (label !== rawTitle.trim()) h2.textContent = label;
+    const number = String(index + 1).padStart(2, '0') + '.';
+
+    const head = document.createElement('div');
+    head.className = 'sec-head';
+    const dot = document.createElement('span');
+    dot.className = 'sec-dot';
+    dot.style.background = ACCENTS[index % ACCENTS.length];
+    const num = document.createElement('span');
+    num.className = 'sec-num';
+    num.textContent = number;
+
+    h2.parentNode.insertBefore(head, h2);
+    head.appendChild(dot);
+    head.appendChild(h2);
+    h2.insertBefore(num, h2.firstChild);
+
+    toc.insertAdjacentHTML('beforeend',
+      '<a class="toc-item" href="#' + section.id + '">' + number + ' ' + label + '</a>');
+  });
+
+  // 2. Podswietlanie aktywnej sekcji w indeksie.
+  const tocLinks = Array.from(document.querySelectorAll('.toc-item'));
+  function highlightCurrent() {
+    let current = '';
+    sections.forEach(section => {
+      if (window.scrollY >= section.offsetTop - 140) current = section.id;
+    });
+    tocLinks.forEach(link => link.classList.toggle('is-active', link.getAttribute('href') === '#' + current));
+  }
+  window.addEventListener('scroll', highlightCurrent);
+  highlightCurrent();
+
+  // 3. Normalizacja tresci: agent pisze czysty HTML, skrypt doklada to, co potrzebne wizualnie.
+  // 3a. Tabele w ramke z przewijaniem.
+  document.querySelectorAll('#spec-content table').forEach(table => {
+    const parent = table.parentElement;
+    if (parent && parent.classList.contains('table-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+
+  // 3b. Przycisk kopiowania w kazdym bloku kodu.
+  document.querySelectorAll('#spec-content pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.textContent = 'Kopiuj';
+    btn.addEventListener('click', () => {
+      try { navigator.clipboard.writeText(pre.innerText); } catch (error) { /* brak dostepu do schowka */ }
+      btn.textContent = 'Skopiowano!';
+      setTimeout(() => { btn.textContent = 'Kopiuj'; }, 2000);
+    });
+    pre.appendChild(btn);
+  });
+
+  // 4. Licznik listy kontrolnej: <ul> zawierajaca <li> z <input type="checkbox">.
+  const isTaskList = list => Array.from(list.children).some(item => item.querySelector('input[type="checkbox"]'));
+  document.querySelectorAll('#spec-content ul').forEach(list => {
+    if (!isTaskList(list)) return;
+    const boxes = Array.from(list.querySelectorAll('input[type="checkbox"]'));
+    const head = document.createElement('div');
+    head.className = 'checklist-head';
+    head.innerHTML = '<span>Lista kontrolna</span><span class="count"></span>';
+    const count = head.querySelector('.count');
+    const update = () => {
+      const checked = boxes.filter(box => box.checked).length;
+      count.textContent = checked + ' / ' + boxes.length + ' (' + Math.round((checked / boxes.length) * 100) + '%)';
+    };
+    boxes.forEach(box => box.addEventListener('change', update));
+    update();
+    list.parentNode.insertBefore(head, list);
+  });
+
+  // 5. Komentarze do specyfikacji - tryb staly: klik w dowolny element dokumentu otwiera dymek.
+  // Zapis w localStorage (klucz per plik) - komentarze nie wchodza do pliku HTML.
+  // Klik na licznik kopiuje caly zestaw jako JSON (z kontekstem: sekcja, selektor, cytat).
+  (function () {
+    const markers = document.getElementById('sc-markers');
+    const widget = document.getElementById('sc-widget');
+    if (!widget || !markers) return;
+
+    const countBtn = document.getElementById('sc-count');
+    const bubble = document.getElementById('sc-bubble');
+    const input = document.getElementById('sc-input');
+    const saveBtn = document.getElementById('sc-save');
+    const deleteBtn = document.getElementById('sc-delete');
+    const closeBtn = document.getElementById('sc-close');
+    const toast = document.getElementById('sc-toast');
+
+    const STORAGE_KEY = 'sw-spec-comments:' + location.pathname;
+    const CONTENT = document.getElementById('spec-content');
+    let comments = load();
+    let anchor = null;
+    let markerEls = [];
+    let toastTimer = null;
+
+    function load() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return Array.isArray(raw) ? raw : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function store() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(comments));
+      } catch (error) {
+        // np. zablokowany localStorage na file:// - komentarze zostaja tylko w tej sesji
+      }
+      render();
+    }
+
+    function plural(count) {
+      if (count === 1) return 'komentarz';
+      const last = count % 10;
+      const teens = count % 100;
+      return last >= 2 && last <= 4 && (teens < 10 || teens >= 20) ? 'komentarze' : 'komentarzy';
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toast.hidden = true; }, 2600);
+    }
+
+    function cssPath(element) {
+      const parts = [];
+      let node = element;
+      while (node && node !== document.body) {
+        if (node.id) {
+          parts.unshift(node.tagName.toLowerCase() + '#' + node.id);
+          break;
+        }
+        const parent = node.parentElement;
+        const index = parent ? Array.prototype.indexOf.call(parent.children, node) + 1 : 1;
+        parts.unshift(node.tagName.toLowerCase() + ':nth-child(' + index + ')');
+        node = parent;
+      }
+      return parts.join(' > ');
+    }
+
+    function describe(element) {
+      const section = element.closest('section[id]');
+      const heading = section ? section.querySelector('h2') : null;
+      const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+      return {
+        sectionId: section ? section.id : null,
+        sectionTitle: heading ? heading.textContent.replace(/^\s*\d+\.\s*/, '').trim() : null,
+        selector: cssPath(element),
+        tag: element.tagName.toLowerCase(),
+        text: text.slice(0, 240)
+      };
+    }
+
+    function findBySelector(selector) {
+      try { return document.querySelector(selector); } catch (error) { return null; }
+    }
+
+    // Indykatory w ukladzie dokumentu (absolute) - przewijanie nie wymaga przeliczania pozycji.
+    function positionMarkers() {
+      markerEls.forEach(function (marker) {
+        const target = findBySelector(marker.entry.selector);
+        if (!target) { marker.button.hidden = true; return; }
+        marker.button.hidden = false;
+        const rect = target.getBoundingClientRect();
+        marker.button.style.top = (rect.top + (window.scrollY || 0) - 10) + 'px';
+        marker.button.style.left = Math.max(0, rect.left + (window.scrollX || 0) + rect.width - 10) + 'px';
+      });
+    }
+
+    function render() {
+      countBtn.hidden = comments.length === 0;
+      countBtn.innerHTML = '<span class="material-symbols-outlined">forum</span><span>' + comments.length + '</span>';
+      countBtn.title = comments.length + ' ' + plural(comments.length) + ' — kliknij, aby skopiować JSON do schowka';
+
+      markers.innerHTML = '';
+      markerEls = comments.map(function (entry) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'sc-marker';
+        button.title = 'Komentarz — kliknij, aby edytować lub usunąć';
+        button.innerHTML = '<span class="material-symbols-outlined">chat_bubble</span>';
+        button.addEventListener('click', function (event) {
+          event.stopPropagation();
+          const target = findBySelector(entry.selector);
+          if (target) openFor(target);
+          else showToast('Nie znaleziono elementu dla tego komentarza');
+        });
+        markers.appendChild(button);
+        return { button: button, entry: entry };
+      });
+      positionMarkers();
+    }
+
+    function openFor(element) {
+      anchor = describe(element);
+      const existing = comments.find(function (entry) { return entry.selector === anchor.selector; });
+      input.value = existing ? existing.comment : '';
+      deleteBtn.hidden = !existing;
+      bubble.hidden = false;
+
+      const rect = element.getBoundingClientRect();
+      const box = bubble.getBoundingClientRect();
+      bubble.style.left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - box.width - 8)) + 'px';
+      bubble.style.top = (rect.bottom + box.height + 16 > window.innerHeight
+        ? Math.max(8, rect.top - box.height - 8)
+        : rect.bottom + 8) + 'px';
+      input.focus();
+    }
+
+    function close() {
+      bubble.hidden = true;
+      anchor = null;
+    }
+
+    function save() {
+      if (!anchor) return;
+      const text = input.value.trim();
+      if (!text) { close(); return; }
+      const existing = comments.find(function (entry) { return entry.selector === anchor.selector; });
+      const stamp = new Date().toISOString();
+      if (existing) {
+        existing.comment = text;
+        existing.updatedAt = stamp;
+      } else {
+        comments.push(Object.assign({ id: 'c' + Date.now().toString(36), comment: text, createdAt: stamp }, anchor));
+      }
+      store();
+      close();
+      showToast('Komentarz zapisany (' + comments.length + ')');
+    }
+
+    function remove() {
+      if (!anchor) return;
+      comments = comments.filter(function (entry) { return entry.selector !== anchor.selector; });
+      store();
+      close();
+      showToast('Komentarz usunięty (' + comments.length + ')');
+    }
+
+    function fallbackCopy(text) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      let copied = false;
+      try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+      area.remove();
+      return copied;
+    }
+
+    function copyAll() {
+      if (!comments.length) return;
+      const sourceLink = document.querySelector('a[href$=".md"]');
+      const payload = {
+        spec: document.title,
+        source: sourceLink ? sourceLink.getAttribute('href') : null,
+        exportedAt: new Date().toISOString(),
+        count: comments.length,
+        comments: comments
+      };
+      const json = JSON.stringify(payload, null, 2);
+      const done = function (copied) {
+        showToast(copied
+          ? 'Skopiowano do schowka: ' + comments.length + ' ' + plural(comments.length) + ' (JSON)'
+          : 'Nie udało się skopiować — sprawdź uprawnienia schowka');
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(json).then(function () { done(true); }, function () { done(fallbackCopy(json)); });
+      } else {
+        done(fallbackCopy(json));
+      }
+    }
+
+    // Tryb komentarza jest staly - klik w tresc dokumentu otwiera dymek.
+    // Wyjatki: linki, przyciski i pola formularza dzialaja normalnie; zaznaczanie tekstu nie otwiera dymku.
+    document.addEventListener('click', function (event) {
+      const target = event.target;
+      if (!CONTENT || target.closest('#sc-widget, #sc-bubble, #sc-markers, #sc-toast')) return;
+      if (target.closest('a[href], button, input, label, select, textarea')) return;
+      if (window.getSelection && window.getSelection().toString()) return;
+      const element = target.closest('#spec-content *');
+      if (!element) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openFor(element);
+    }, true);
+
+    countBtn.addEventListener('click', copyAll);
+    saveBtn.addEventListener('click', save);
+    deleteBtn.addEventListener('click', remove);
+    closeBtn.addEventListener('click', close);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); save(); }
+    });
+    window.addEventListener('resize', positionMarkers);
+    window.addEventListener('load', positionMarkers);
+
+    render();
+    if (!comments.length) showToast('Kliknij dowolny element dokumentu, aby dodać komentarz');
+  }());
+</script>
+</body>
+</html>
