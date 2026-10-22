@@ -31,27 +31,27 @@
   <main class="lg:col-span-9 p-6 md:p-10 lg:p-12 bg-[#f5f0e8]" id="spec-content">
     <section class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 md:p-8 shadow-[4px_4px_0px_#1a1a1a]">
       <h1 class="font-['Space_Grotesk'] text-2xl md:text-4xl font-bold tracking-tight mb-4 leading-tight">Synchronizacja tablicy z Todoist</h1>
-      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Automatyczne odzwierciedlenie statusów między tablicą TODO / In Progress / DONE a Todoist w obie strony. Link 1:1 karta ↔ zadanie, sync w tle co 60 s, konflikt rozstrzygany na korzyść ręcznej zmiany. Import pozostaje decyzją AI.</p>
+      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Tablica TODO / In Progress / DONE jako jedyne źródło prawdy oraz dwukierunkowa synchronizacja statusów z Todoist: import przez AI, idempotentny sync w tle, konflikt rozstrzygany na korzyść ręcznej zmiany, token wyłącznie ze zmiennej środowiskowej.</p>
     </section>
 
     <section id="cel-i-uzasadnienie">
-  <h2>Cel i uzasadnienie</h2>
-  <p>Tablica <code>TODO / In Progress / DONE</code> jest jedynym źródłem prawdy o tym, co robimy — ale część zadań użytkownika żyje w Todoist (telefon, współdzielone projekty, zadania cykliczne). Ręczne przepisywanie ich na tablicę to praca, której nikt nie wykonuje regularnie. Efekt: tablica kłamie, a Todoist rośnie w zaległości.</p>
-  <p>Cel: jedno miejsce decyzyjne (tablica) i automatyczne odzwierciedlenie statusów w obie strony. Import nowych zadań pozostaje decyzją AI — tylko ona potrafi ocenić, czy zadanie „kup mleko" da się zrobić na komputerze.</p>
+  <h2>1. Cel i uzasadnienie</h2>
+  <p>Tablica <code>TODO / In Progress / DONE</code> jest jedynym źródłem prawdy o tym, co robimy — ale część zadań użytkownika żyje w Todoist (telefon, współdzielone projekty, zadania cykliczne). Ręczne przepisywanie ich na tablicę to praca, której nikt nie wykonuje regularnie. Efekt: tablica kłamie, a Todoist rośnie w zaległościach.</p>
+  <p><strong>Cel:</strong> jedno miejsce decyzyjne (tablica) i automatyczne odzwierciedlenie statusów w obie strony. Import nowych zadań pozostaje decyzją AI — tylko ona potrafi ocenić, czy zadanie „kup mleko” da się zrobić na komputerze.</p>
 </section>
 
 <section id="opis-problemu">
-  <h2>Opis problemu</h2>
+  <h2>2. Opis problemu</h2>
   <ul>
     <li>Zadania z Todoist na dziś i zaległe nie trafiają na tablicę; użytkownik nie wie, co realnie może zrobić przy komputerze.</li>
     <li>Ukończenie zadania w jednym systemie nie jest widoczne w drugim.</li>
-    <li>Cofnięcie karty z DONE („jednak tego nie zrobiłem") nie przywraca zadania w Todoist.</li>
+    <li>Cofnięcie karty z DONE („jednak tego nie zrobiłem”) nie przywraca zadania w Todoist.</li>
     <li>Ręczne kopiowanie tytułów, terminów i statusów jest kosztowne i nieaktualne w ciągu godziny.</li>
   </ul>
 </section>
 
 <section id="przyjete-rozwiazania">
-  <h2>Przyjęte rozwiązania</h2>
+  <h2>3. Przyjęte rozwiązania</h2>
   <ol>
     <li><strong>Import przez AI.</strong> Core udostępnia listę kandydatów (zadania Todoist na dziś i zaległe, jeszcze niezlankowane). AI (sesja OpenCode, skill <code>kanban-triage</code>) ocenia, które da się wykonać na komputerze, i importuje je przez CLI. Core nie importuje nic automatycznie.</li>
     <li><strong>Link 1:1 karta ↔ zadanie Todoist</strong> przez kolumnę <code>tasks.todoist_id</code> (unikalny indeks częściowy). Bez osobnej tabeli mapowań.</li>
@@ -59,7 +59,8 @@
       <ul>
         <li><code>tasks.todoist_state</code> (<code>open</code> / <code>closed</code>, NULL = brak linku) — ostatni znany stan zadania w Todoist, daje idempotencję <code>close</code>/<code>reopen</code>;</li>
         <li><code>tasks.todoist_seen_at</code> (epoch, 0 = brak) — znacznik ostatniego <strong>rozliczonego</strong> ukończenia w Todoist (<code>completed_at</code>), żeby nakładające się okna zapytań nie stosowały tego samego zdarzenia dwa razy.</li>
-      </ul></li>
+      </ul>
+    </li>
     <li><strong>Sync w tle w Core</strong> (pętla co 60 s, obok istniejącej pętli archiwizacji). Push przed pullem; sieć nigdy pod lockiem bazy; jeden cykl naraz (single-flight).</li>
     <li><strong>Konflikt: wygrywa ręczna zmiana.</strong> Jeżeli karta była modyfikowana po ostatniej udanej synchronizacji, Todoist nie nadpisuje jej statusu — zamiast tego stan lokalny jest wypychany (<code>reopen</code>), a zdarzenie ukończenia jest oznaczane jako rozliczone.</li>
     <li><strong>Archiwum:</strong> karty <code>archived</code> są tylko pushowane (<code>close</code> zaległego zamknięcia), nigdy pullowane — archiwum nie wskrzeszamy.</li>
@@ -71,24 +72,24 @@
 </section>
 
 <section id="rozwazane-strategie-implementacji">
-  <h2>Rozważane strategie implementacji (bez kodu)</h2>
+  <h2>4. Rozważane strategie implementacji (bez kodu)</h2>
   <table>
     <thead><tr><th>Wariant</th><th>Zalety</th><th>Wady</th><th>Decyzja</th></tr></thead>
     <tbody>
-      <tr><td>Sync wyłącznie na żądanie (CLI)</td><td>Zero pracy w tle, prosto</td><td>Ukończenie w Todoist nie zmieni karty, dopóki ktoś nie odpali komendy</td><td>odrzucone</td></tr>
-      <tr><td>Core jako pętla w tle</td><td>Działa bez udziału użytkownika i AI</td><td>Trzeba pilnować locków i błędów sieci</td><td><mark>PRZYJĘTE</mark></td></tr>
-      <tr><td>Todoist Sync API (<code>/sync</code>)</td><td>Incrementalny, jeden request</td><td>Format komend, <code>sync_token</code>, więcej stanu klienta</td><td>odrzucone — REST v1 wystarcza</td></tr>
-      <tr><td>REST API v1 (filter + completed + close/reopen)</td><td>Prosty kontrakt, mało stanu</td><td>Brak push-notyfikacji; polling</td><td><mark>PRZYJĘTE</mark></td></tr>
-      <tr><td>Watermark globalny (<code>meta.todoist_sync_at</code>) jako mechanizm decyzyjny</td><td>Jeden licznik</td><td>Gubi zmiany po częściowej awarii; nie odróżnia „zamknięte" od „trzeba zamknąć"</td><td>odrzucone; zostaje wyłącznie jako okno zapytania o ukończenia</td></tr>
-      <tr><td>Tylko watermark per karta, bez <code>todoist_state</code></td><td>Jeden mechanizm</td><td>Nie odróżnia „już zamknięte" od „trzeba zamknąć" → close w pętli</td><td>odrzucone; potrzebne oba</td></tr>
-      <tr><td>Automatyczny import wszystkich „dziś/zaległe"</td><td>Zero decyzji</td><td>Tablica zapełnia się zadaniami, których nie da się zrobić przy komputerze</td><td>odrzucone (decyzja użytkownika)</td></tr>
-      <tr><td>LLM wywoływany z Core</td><td>Pełna autonomia</td><td>Drugi klucz API, koszt, opóźnienia, brak kontroli</td><td>odrzucone</td></tr>
+      <tr><td>Sync wyłącznie na żądanie (CLI)</td><td>Zero pracy w tle, prosto</td><td>Ukończenie w Todoist nie zmieni karty, dopóki ktoś nie odpali komendy</td><td><mark>odrzucone</mark></td></tr>
+      <tr><td>Core jako pętla w tle</td><td>Działa bez udziału użytkownika i AI</td><td>Trzeba pilnować locków i błędów sieci</td><td><mark>przyjęte</mark></td></tr>
+      <tr><td>Todoist Sync API (<code>/sync</code>)</td><td>Incrementalny, jeden request</td><td>Format komend, <code>sync_token</code>, więcej stanu klienta</td><td><mark>odrzucone</mark> — REST v1 wystarcza</td></tr>
+      <tr><td>REST API v1 (filter + completed + close/reopen)</td><td>Prosty kontrakt, mało stanu</td><td>Brak push-notyfikacji; polling</td><td><mark>przyjęte</mark></td></tr>
+      <tr><td>Watermark globalny (<code>meta.todoist_sync_at</code>) jako mechanizm decyzyjny</td><td>Jeden licznik</td><td>Gubi zmiany po częściowej awarii; nie odróżnia „zamknięte” od „trzeba zamknąć”</td><td><mark>odrzucone</mark>; zostaje wyłącznie jako okno zapytania o ukończenia</td></tr>
+      <tr><td>Tylko watermark per karta, bez <code>todoist_state</code></td><td>Jeden mechanizm</td><td>Nie odróżnia „już zamknięte” od „trzeba zamknąć” → close w pętli</td><td><mark>odrzucone</mark>; potrzebne oba</td></tr>
+      <tr><td>Automatyczny import wszystkich „dziś/zaległe”</td><td>Zero decyzji</td><td>Tablica zapełnia się zadaniami, których nie da się zrobić przy komputerze</td><td><mark>odrzucone</mark> (decyzja użytkownika)</td></tr>
+      <tr><td>LLM wywoływany z Core</td><td>Pełna autonomia</td><td>Drugi klucz API, koszt, opóźnienia, brak kontroli</td><td><mark>odrzucone</mark></td></tr>
     </tbody>
   </table>
 </section>
 
 <section id="wzorce-architektoniczne">
-  <h2>Wzorce architektoniczne</h2>
+  <h2>5. Wzorce architektoniczne</h2>
   <ul>
     <li><strong>Snapshot → sieć → zapis.</strong> Jedno krótkie zajęcie <code>Mutex&lt;Store&gt;</code> na odczyt, żądania HTTP bez locka, jedno krótkie zajęcie na zapis. <code>std::sync::Mutex</code> i <code>rusqlite</code> są synchroniczne; guard nie może przeżyć <code>.await</code>.</li>
     <li><strong>Maszyna stanów per karta</strong> zamiast porównywania zegarów: <code>(status lokalny, todoist_state)</code> → akcja; <code>todoist_seen_at</code> → czy zdarzenie zdalne już rozliczone.</li>
@@ -101,52 +102,22 @@
 </section>
 
 <section id="architektura">
-  <h2>Architektura</h2>
-  <figure>
-    <figcaption>Schemat architektoniczny: przepływ danych</figcaption>
-    <svg viewBox="0 0 960 300" role="img" style="min-width:760px">
-      <defs>
-        <pattern id="bh-grid" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.2" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
-        </pattern>
-        <marker id="bh-arrow" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
-          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
-        </marker>
-      </defs>
-      <rect width="960" height="300" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
-      <rect width="960" height="300" fill="url(#bh-grid)"></rect>
-      <g transform="translate(30, 40)">
-        <rect width="560" height="235" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="560" height="24" fill="#1a1a1a"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">CORE // omarchy-kanban serve</text>
-        <text x="14" y="58" fill="#1a1a1a" font-size="9">axum router — /api/state, /api/tasks… (istniejące)</text>
-        <text x="14" y="76" fill="#0055ff" font-size="9">— /api/todoist/{status,candidates,import,sync}  ← nowe</text>
-        <text x="14" y="94" fill="#1a1a1a" font-size="9">retention_loop (60 s, istnieje)</text>
-        <rect x="14" y="104" width="280" height="26" fill="#ffcc00" stroke="#1a1a1a" stroke-width="1"></rect>
-        <text x="20" y="121" fill="#1a1a1a" font-size="9">todoist_loop (60 s) → snapshot → zapis</text>
-        <text x="14" y="168" fill="#1a1a1a" font-size="9" font-weight="bold">Store (SQLite)</text>
-        <text x="14" y="186" fill="#1a1a1a" font-size="9">tasks + todoist_id, todoist_state, todoist_seen_at</text>
-        <text x="14" y="204" fill="#1a1a1a" font-size="9">meta: todoist_sync_at, todoist_last_error</text>
-        <path d="M 294 117 L 294 150" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#bh-arrow)"></path>
-      </g>
-      <path d="M 590 120 L 640 120" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow)"></path>
-      <text x="596" y="110" fill="#1a1a1a" font-size="9" font-weight="bold">HTTPS +
-
-Bearer</text>
-      <g transform="translate(645, 40)">
-        <rect width="285" height="235" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="285" height="24" fill="#0055ff"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">TODOIST // api.todoist.com</text>
-        <text x="14" y="58" fill="#1a1a1a" font-size="9">/api/v1 — filter</text>
-        <text x="14" y="76" fill="#1a1a1a" font-size="9">completed, close, reopen</text>
-        <text x="14" y="150" fill="#1a1a1a" font-size="9" font-weight="bold">CLI omarchy-kanban</text>
-        <text x="14" y="168" fill="#1a1a1a" font-size="9">todoist … (AI przez shell)</text>
-        <text x="14" y="186" fill="#1a1a1a" font-size="9">widget Omarchy (bez zmian)</text>
-      </g>
-      <rect x="30" y="285" width="900" height="2" fill="#1a1a1a"></rect>
-    </svg>
-  </figure>
-  <p>Nowe/zmienione pliki:</p>
+  <h2>6. Architektura</h2>
+<pre><code>┌──────────────────────────── Core (proces omarchy-kanban serve) ─────────────────────────┐
+│  axum router ── /api/state, /api/tasks…  (istniejące)                                    │
+│              └─ /api/todoist/{status,candidates,import,sync}  ← nowe                    │
+│  retention_loop (60 s, istnieje)                                                          │
+│  todoist_loop (60 s, nowy) ── snapshot ──► TodoistClient (reqwest, bez locka) ──► zapis  │
+│  Store (SQLite): tasks + todoist_id, todoist_state, todoist_seen_at;                    │
+│                  meta: todoist_sync_at, todoist_last_error                               │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+        ▲ HTTP + Bearer token Core                        │ HTTPS + Bearer TODOIST_API_TOKEN
+        │                                                  ▼
+  CLI `omarchy-kanban todoist …`                     api.todoist.com/api/v1
+  (AI przez shell)                                    (filter, completed, close, reopen)
+        ▲
+  widget Omarchy (bez zmian)</code></pre>
+  <h3>Nowe / zmienione pliki</h3>
   <table>
     <thead><tr><th>Plik</th><th>Zmiana</th></tr></thead>
     <tbody>
@@ -161,7 +132,7 @@ Bearer</text>
 </section>
 
 <section id="api-interfejs">
-  <h2>API / Interfejs</h2>
+  <h2>7. API / Interfejs</h2>
   <h3>7.1 API Core (wymaga <code>Authorization: Bearer &lt;token Core&gt;</code>, Host = loopback)</h3>
   <table>
     <thead><tr><th>Metoda</th><th>Ścieżka</th><th>Treść / odpowiedź</th></tr></thead>
@@ -172,7 +143,6 @@ Bearer</text>
       <tr><td>POST</td><td><code>/api/todoist/sync</code></td><td>wymusza cykl → <code>{closed, reopened, pulled, unlinked, errors:[…]}</code> lub <code>{busy:true}</code></td></tr>
     </tbody>
   </table>
-
   <h3>7.2 API Todoist (v1, <code>TODOIST_API_URL</code> nadpisywalny dla testów)</h3>
   <table>
     <thead><tr><th>Metoda</th><th>Ścieżka</th><th>Użycie</th></tr></thead>
@@ -185,89 +155,30 @@ Bearer</text>
     </tbody>
   </table>
   <p>Paginacja kursorowa: <code>limit=200</code>, dopóki <code>next_cursor != null</code>. Limit dostawcy: 1000 żądań / 15 min — nasz cykl to 1–3 żądania.</p>
-  <blockquote data-tone="warn"><strong>Kontrakt odpowiedzi</strong><p><code>close</code>/<code>reopen</code> mogą zwrócić <code>200</code> <strong>lub <code>204</code> bez ciała</strong> — sukces czytamy ze statusu HTTP, ciało parsujemy tylko przy błędzie. <code>close</code> już zamkniętego zadania (<code>400</code>) traktujemy jak sukces (<code>state='closed'</code>); <code>reopen</code> nieaktywnego/cyklicznego (<code>400</code>) jak sukces (<code>state='open'</code>); <code>404</code> = zadanie zniknęło → odlinkowanie. <code>401</code>/<code>429</code>/<code>5xx</code>/timeout = błąd cyklu.</p></blockquote>
-
+  <p>Kontrakt odpowiedzi: <code>close</code>/<code>reopen</code> mogą zwrócić <code>200</code> <strong>lub <code>204</code> bez ciała</strong> — sukces czytamy ze statusu HTTP, ciało parsujemy tylko przy błędzie. <code>close</code> już zamkniętego zadania (<code>400</code>) traktujemy jak sukces (<code>state='closed'</code>); <code>reopen</code> nieaktywnego/cyklicznego (<code>400</code>) jak sukces (<code>state='open'</code>); <code>404</code> = zadanie zniknęło → odlinkowanie. <code>401</code>/<code>429</code>/<code>5xx</code>/timeout = błąd cyklu.</p>
   <h3>7.3 CLI</h3>
-  <pre><code>omarchy-kanban todoist status                 # enabled / last_sync / błąd / liczba linków
+<pre><code>omarchy-kanban todoist status                 # enabled / last_sync / błąd / liczba linków
 omarchy-kanban todoist candidates [--json]    # dziś + zaległe, do decyzji AI
 omarchy-kanban todoist import &lt;id&gt; [&lt;id&gt;…] [--status todo|doing|done]
 omarchy-kanban todoist sync                   # wymuś cykl i pokaż wynik</code></pre>
-
   <h3>7.4 Skrypt tokenu</h3>
-  <pre><code>python3 todoist-token.py            # pyta o token (getpass lub stdin), waliduje, instaluje
+<pre><code>python3 todoist-token.py            # pyta o token (getpass lub stdin), waliduje, instaluje
 python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</code></pre>
   <p>Skutki: plik <code>$XDG_CONFIG_HOME/agent-kanban/todoist.env</code> (<code>0600</code>, katalog <code>0700</code>) z <code>TODOIST_API_TOKEN=…</code>, drop-in <code>$XDG_CONFIG_HOME/systemd/user/agent-kanban.service.d/10-todoist.conf</code> z <code>EnvironmentFile=</code> wskazującym <strong>faktyczną</strong> ścieżkę tego pliku (domyślnie <code>$HOME/.config/agent-kanban/todoist.env</code>; <code>XDG_CONFIG_HOME</code> jest respektowane), <code>daemon-reload</code>, <code>restart</code>, health-check i <code>omarchy-kanban todoist status</code>. Token nigdy nie trafia do argv, unit file ani logów.</p>
 </section>
 
 <section id="przeplywy-danych">
-  <h2>Przepływy danych</h2>
+  <h2>8. Przepływy danych</h2>
   <h3>8.1 Import (AI)</h3>
   <ol>
-    <li><strong>AI:</strong> <code>omarchy-kanban todoist candidates --json</code>.</li>
-    <li><strong>Core:</strong> <code>GET /tasks/filter?query=today | overdue</code>, wszystkie strony; odrzuca id już zlinkowane; zwraca listę.</li>
-    <li><strong>AI ocenia</strong> każde zadanie: „da się zrobić przy komputerze?" (tak → import; nie → pomija i mówi użytkownikowi dlaczego).</li>
-    <li><strong>AI:</strong> <code>omarchy-kanban todoist import &lt;id&gt;…</code>.</li>
-    <li><strong>Core:</strong> dla każdego id <code>GET /tasks/{id}</code> (404 → <code>skipped</code>), tworzy kartę <code>status=todo</code> (lub wskazany), <code>notes</code> = opis + <code>Termin: …</code> gdy jest, <code>todoist_id</code>, <code>todoist_state='open'</code>, <code>todoist_seen_at=now</code>. Duplikat → <code>skipped: already_linked</code>.</li>
+    <li>AI: <code>omarchy-kanban todoist candidates --json</code>.</li>
+    <li>Core: <code>GET /tasks/filter?query=today | overdue</code>, wszystkie strony; odrzuca id już zlinkowane; zwraca listę.</li>
+    <li>AI ocenia każde zadanie: „da się zrobić przy komputerze?” (tak → import; nie → pomija i mówi użytkownikowi dlaczego).</li>
+    <li>AI: <code>omarchy-kanban todoist import &lt;id&gt;…</code>.</li>
+    <li>Core: dla każdego id <code>GET /tasks/{id}</code> (404 → <code>skipped</code>), tworzy kartę <code>status=todo</code> (lub wskazany), <code>notes</code> = opis + <code>Termin: …</code> gdy jest, <code>todoist_id</code>, <code>todoist_state='open'</code>, <code>todoist_seen_at=now</code>. Duplikat → <code>skipped: already_linked</code>.</li>
   </ol>
-
   <h3>8.2 Cykl synchronizacji (<code>sync_once(at)</code>)</h3>
   <p>Wejście: <code>at</code> (epoch), klient, snapshot linków <code>(id, todoist_id, status, updated_at, todoist_state, todoist_seen_at)</code> oraz <code>last_sync</code> z <code>meta</code>.</p>
-  <figure>
-    <figcaption>Cykl synchronizacji: push → pull → zapis</figcaption>
-    <svg viewBox="0 0 900 290" role="img" style="min-width:760px">
-      <defs>
-        <pattern id="bh-grid-3" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.2" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
-        </pattern>
-        <marker id="bh-arrow-3" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
-          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
-        </marker>
-      </defs>
-      <rect width="900" height="290" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
-      <rect width="900" height="290" fill="url(#bh-grid-3)"></rect>
-      <g transform="translate(20, 40)">
-        <rect width="180" height="180" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="180" height="24" fill="#1a1a1a"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">01 // SNAPSHOT</text>
-        <text x="12" y="52" fill="#1a1a1a" font-size="9">odczyt linków</text>
-        <text x="12" y="70" fill="#1a1a1a" font-size="9">krótkie zajęcie</text>
-        <text x="12" y="88" fill="#1a1a1a" font-size="9">locka &lt;Store&gt;</text>
-        <text x="12" y="130" fill="#1a1a1a" font-size="9">bez await pod</text>
-        <text x="12" y="148" fill="#1a1a1a" font-size="9">guardem</text>
-      </g>
-      <path d="M 200 130 L 250 130" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
-      <text x="206" y="120" fill="#1a1a1a" font-size="9" font-weight="bold">linki</text>
-      <g transform="translate(255, 30)">
-        <rect width="220" height="200" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="220" height="24" fill="#ffcc00"></rect>
-        <text x="10" y="16" fill="#1a1a1a" font-size="10" font-weight="bold">02 // PUSH</text>
-        <text x="14" y="58" fill="#1a1a1a" font-size="9">done|archived → close</text>
-        <text x="14" y="76" fill="#1a1a1a" font-size="9">todo|doing → reopen</text>
-        <text x="14" y="94" fill="#1a1a1a" font-size="9">404 → odlinkuj</text>
-        <text x="14" y="112" fill="#1a1a1a" font-size="9">bez locka (reqwest)</text>
-        <rect x="14" y="136" width="190" height="26" fill="#eee9e0" stroke="#1a1a1a" stroke-width="1"></rect>
-        <text x="20" y="153" fill="#1a1a1a" font-size="9">błąd karty nie przerywa</text>
-      </g>
-      <path d="M 475 130 L 525 130" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
-      <text x="482" y="120" fill="#1a1a1a" font-size="9" font-weight="bold"></text>
-      <path d="M 525 130 L 525 170 L 600 170" fill="none" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow-3)"></path>
-      <text x="525" y="125" fill="#1a1a1a" font-size="9" font-weight="bold">stan</text>
-      <g transform="translate(605, 30)">
-        <rect width="250" height="200" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="250" height="24" fill="#0055ff"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="10" font-weight="bold">03 // PULL</text>
-        <text x="14" y="58" fill="#1a1a1a" font-size="9">by_completion_date</text>
-        <text x="14" y="76" fill="#1a1a1a" font-size="9">since = last_sync − 300 s</text>
-        <text x="14" y="94" fill="#1a1a1a" font-size="9">sealed przez seen_at</text>
-        <text x="14" y="112" fill="#1a1a1a" font-size="9">karta nietknięta → done</text>
-        <text x="14" y="130" fill="#1a1a1a" font-size="9">ruszona → reopen</text>
-        <text x="14" y="160" fill="#1a1a1a" font-size="9">zero kart → zero żądań</text>
-      </g>
-      <path d="M 855 130 L 880 130" fill="none" stroke="#1a1a1a" stroke-width="1.5"></path>
-      <text x="610" y="245" fill="#1a1a1a" font-size="9"></text>
-      <text x="30" y="272" fill="#1a1a1a" font-size="9" font-weight="bold">ZAPIS: jedna transakcja — status CAS (WHERE updated_at = snapshot), todoist_state i seen_at bezwarunkowo, meta.todoist_sync_at tylko gdy brak błędów</text>
-    </svg>
-  </figure>
   <ol>
     <li><strong>Push</strong> (karty <code>todo|doing|done</code>, oraz <code>archived</code> — tylko w tę stronę):
       <ul>
@@ -276,17 +187,18 @@ python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</c
         <li><code>404</code> → odlinkuj (karta zostaje), <code>errors</code> += wpis</li>
         <li><code>400</code> → odpowiednio <code>closed</code>/<code>open</code> (już w tym stanie), bez błędu</li>
         <li>błąd jednej karty nie przerywa cyklu; reszta kart leci dalej</li>
-      </ul></li>
-    <li><strong>Pull</strong>, tylko jeśli istnieje choć jedna karta <code>status != done|archived</code> z <code>todoist_id</code> (nie ma czego pullować → zero żądań): <code>GET /tasks/completed/by_completion_date?since=&lt;last_sync - 300 s&gt;&amp;until=&lt;at&gt;</code>, <code>since = at - 7 dni</code> gdy brak <code>last_sync</code>. Dla każdego ukończenia <code>(todoist_id, completed_at)</code>:
+      </ul>
+    </li>
+    <li><strong>Pull</strong>, tylko jeśli istnieje choć jedna karta <code>status != done|archived</code> z <code>todoist_id</code> (nie ma czego pullować → zero żądań): <code>GET /tasks/completed/by_completion_date?since=&lt;last_sync - 300 s&gt;&amp;until=&lt;at&gt;</code>, <code>since = at - 7 dni</code> gdy brak <code>last_sync</code>. Okno jest przycinane: nie starsze niż 89 dni (<code>since &gt;= at - 89 dni</code>) i zawsze <code>since &lt; until</code> (odporność na cofnięty zegar; inaczej każde żądanie kończyłoby się <code>400</code>). Dla każdego ukończenia <code>(todoist_id, completed_at)</code>:
       <ul>
         <li><code>completed_at &lt;= todoist_seen_at</code> → już rozliczone, pomiń;</li>
-        <li>karta nietknięta (<code>updated_at &lt; last_sync</code>, a przy braku <code>last_sync</code> — zawsze „nietknięta") → <code>status='done'</code>, <code>done_at=at</code>, <code>state='closed'</code>, <code>todoist_seen_at=completed_at</code>;</li>
+        <li>karta nietknięta (<code>updated_at &lt; last_sync</code>, a przy braku <code>last_sync</code> — zawsze „nietknięta”) → <code>status='done'</code>, <code>done_at=at</code>, <code>state='closed'</code>, <code>todoist_seen_at=completed_at</code>;</li>
         <li>karta ruszona ręcznie po <code>last_sync</code> → wygrywa tablica: <code>POST reopen</code>, <code>state='open'</code>, <code>todoist_seen_at=completed_at</code> (zdarzenie rozliczone, nie wróci).</li>
-      </ul></li>
+      </ul>
+    </li>
     <li><strong>Zapis</strong> (jedna transakcja): statusy i <code>done_at</code> przez compare-and-set (<code>WHERE id=? AND updated_at=&lt;snapshot updated_at&gt;</code>); <code>todoist_state</code> i <code>todoist_seen_at</code> bezwarunkowo; <code>unlink</code>; <code>meta.todoist_sync_at = at</code> tylko gdy cykl nie zwrócił błędów; <code>meta.todoist_last_error</code> ustawiany/wyczyszczony.</li>
-    <li><strong>Log</strong> tylko przy zmianach lub błędach (bez tokenu).</li>
+    <li>Log tylko przy zmianach lub błędach (bez tokenu).</li>
   </ol>
-
   <h3>8.3 Przejścia i przypadki brzegowe</h3>
   <table>
     <thead><tr><th>Sytuacja</th><th>Zachowanie</th></tr></thead>
@@ -310,7 +222,7 @@ python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</c
 </section>
 
 <section id="wymagania-niefunkcjonalne">
-  <h2>Wymagania niefunkcjonalne</h2>
+  <h2>9. Wymagania niefunkcjonalne</h2>
   <ul>
     <li><strong>Bezpieczeństwo:</strong> token tylko w env usługi (drop-in + <code>EnvironmentFile</code> 0600); brak tokenu w argv, URL, logach i odpowiedziach HTTP; nowe endpointy rejestrowane przed <code>.layer(guard)</code>, więc podlegają Bearer + loopback Host.</li>
     <li><strong>Odporność:</strong> żaden błąd sieci nie może zatrzymać Core ani pętli; timeout żądania 10 s, połączenie 5 s; <code>MissedTickBehavior::Skip</code>.</li>
@@ -325,7 +237,7 @@ python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</c
 </section>
 
 <section id="strategia-testowania">
-  <h2>Strategia testowania i przypadki testowe</h2>
+  <h2>10. Strategia testowania i przypadki testowe</h2>
   <p>Stub Todoist jako serwer axum na <code>127.0.0.1:0</code> w <code>#[cfg(test)] mod tests</code> w <code>src/todoist.rs</code> (crate jest bin-only, więc <code>tests/*.rs</code> nie zaimportuje modułów). Base URL wstrzykiwany do <code>TodoistClient::new</code>; stub waliduje metodę, ścieżkę, <code>Authorization</code> i ciało żądania. Czas sterowany wartością <code>at</code> przekazywaną do <code>sync_once</code> oraz SQL-em w testach (jak <code>retention_only_archives_old_done</code>).</p>
   <table>
     <thead><tr><th>#</th><th>Przypadek</th><th>Poziom</th></tr></thead>
@@ -354,18 +266,18 @@ python3 todoist-token.py --remove   # usuwa integrację i restartuje usługę</c
     </tbody>
   </table>
   <p>Bramka jakości (komendy CI, nie przypadki testowe):</p>
-  <pre><code>cargo fmt --check
+<pre><code>cargo fmt --check
 cargo test --all-targets --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo build --release --locked
 git diff --exit-code Cargo.lock          # zero nowych zależności</code></pre>
-  <blockquote data-tone="warn"><strong>Świadomie nie testujemy</strong><p>serwera Todoist, ich silnika zadań cyklicznych, każdego wariantu 5xx osobno, 60-sekundowej pętli (testujemy <code>sync_once</code>), widgetu, składni filtra <code>today | overdue</code> (ryzyko zewnętrzne).</p></blockquote>
+  <p>Świadomie nie testujemy: serwera Todoist, ich silnika zadań cyklicznych, każdego wariantu 5xx osobno, 60-sekundowej pętli (testujemy <code>sync_once</code>), widgetu, składni filtra <code>today | overdue</code> (ryzyko zewnętrzne).</p>
 </section>
 
 <section id="decyzje-uzytkownika">
-  <h2>Decyzje użytkownika</h2>
+  <h2>11. Decyzje użytkownika</h2>
   <ol>
-    <li><strong>Import tylko przez AI/CLI</strong> — Core nie importuje automatycznie; AI decyduje, które zadania „da się zrobić na komputerze".</li>
+    <li><strong>Import tylko przez AI/CLI</strong> — Core nie importuje automatycznie; AI decyduje, które zadania „da się zrobić na komputerze”.</li>
     <li><strong>Konflikt: wygrywa ręczna zmiana</strong> — karta ruszona po ostatniej synchronizacji nie jest nadpisywana przez Todoist.</li>
     <li><strong>Usuwanie:</strong> brak mechanizmu usuwania w widgecie; <code>task rm</code> linkowanej karty usuwa ją tylko lokalnie, bez DELETE w Todoist.</li>
     <li><strong>Repozytorium:</strong> projekt nie był w gicie; założone repo, stan wyjściowy w commicie bazowym, praca na <code>feature/todoist-sync</code>.</li>
@@ -374,7 +286,7 @@ git diff --exit-code Cargo.lock          # zero nowych zależności</code></pre>
 </section>
 
 <section id="otwarte-pytania">
-  <h2>Otwarte pytania i decyzje</h2>
+  <h2>12. Otwarte pytania i decyzje</h2>
   <ul>
     <li><strong>Zadania cykliczne:</strong> po <code>close</code> Todoist przesuwa termin wystąpienia. Karta zostaje DONE, więc kolejne wystąpienie nie trafi na tablicę automatycznie. Świadome ograniczenie (test #11 pilnuje braku błędu i pętli).</li>
     <li><strong>Edycja tytułu/notatek</strong> nie jest synchronizowana w żadną stronę — tylko statusy (test #18).</li>
@@ -384,13 +296,13 @@ git diff --exit-code Cargo.lock          # zero nowych zależności</code></pre>
 </section>
 
 <section id="runda-recenzji">
-  <h2>Runda recenzji</h2>
-  <p>Runda recenzji: <mark data-tone="info">2</mark></p>
+  <h2>Runda recenzji: 2</h2>
+  <p>Druga runda recenzji specyfikacji.</p>
 </section>
 
     <footer class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 shadow-[4px_4px_0px_#1a1a1a] flex flex-wrap items-center justify-between gap-4 font-['Space_Grotesk']">
       <span class="font-mono text-xs uppercase text-[#1a1a1a]/70">Synchronizacja tablicy z Todoist</span>
-      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="docs/specs/todoist-sync.md">Źródło: docs/specs/todoist-sync.md</a>
+      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="todoist-sync.md">Źródło: todoist-sync.md</a>
     </footer>
   </main>
 </div>
