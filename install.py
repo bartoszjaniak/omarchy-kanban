@@ -12,6 +12,7 @@ import platform
 import shutil
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.request
 import uuid
@@ -33,6 +34,16 @@ def private_write(path, content):
 
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
+
+
+def quote(value):
+    """systemd: quoted argument; %% escapes specifier expansion."""
+    return json.dumps(str(value).replace("%", "%%"))
+
+
+def unit_env(name, value):
+    text = f"{name}={value}"
+    return "Environment=" + (quote(text) if " " in text else text.replace("%", "%%"))
 
 
 def backup(path, folder):
@@ -72,8 +83,6 @@ def install_core(args, binary, backups):
         raise SystemExit("Instalator obsługuje na razie tylko Linux (systemd).")
     service = HOME / ".config/systemd/user/agent-kanban.service"
     backup(service, backups)
-    # systemd supports quoted arguments; %% escapes specifier expansion.
-    quote = lambda value: json.dumps(str(value).replace("%", "%%"))
     private_write(service, "[Unit]\nDescription=Personal Kanban board (TODO / In Progress / DONE)\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=" + " ".join(quote(v) for v in [BIN, "serve", "--port", args.port]) + "\nRestart=on-failure\nRestartSec=5\nEnvironment=" + quote("PATH=" + path) + "\nUMask=0077\n\n[Install]\nWantedBy=default.target\n")
     run(["systemctl", "--user", "daemon-reload"])
     run(["systemctl", "--user", "enable", "agent-kanban.service"])
@@ -111,11 +120,69 @@ def install_widget(binary, backups):
         run(["omarchy", "bar", "move", "bart.kanban", "--after", "omarchy.weather"])
 
 
+def install_todoist_autoimport(args, backups):
+    """Install the Todoist auto-import script and (unless --no-timer) its timer units."""
+    target = HOME / ".local/bin/omarchy-kanban-todoist-import"
+    backup(target, backups)
+    private_write(target, (ROOT / "todoist-autoimport.py").read_bytes())
+    os.chmod(target, 0o755)
+    service = HOME / ".config/systemd/user/agent-kanban-todoist-import.service"
+    timer = HOME / ".config/systemd/user/agent-kanban-todoist-import.timer"
+    if args.no_timer:
+        if timer.exists():
+            run(["systemctl", "--user", "disable", "--now", "agent-kanban-todoist-import.timer"])
+        return
+    backup(service, backups)
+    backup(timer, backups)
+    private_write(service, "\n".join([
+        "[Unit]",
+        "Description=Kanban: auto-import z Todoist (AI)",
+        "After=network.target",
+        "ConditionPathExists=%h/.local/bin/omarchy-kanban-todoist-import",
+        "",
+        "[Service]",
+        "Type=oneshot",
+        "ExecStart=%h/.local/bin/omarchy-kanban-todoist-import",
+        "Environment=" + quote("PATH=" + os.environ.get("PATH", "")),
+        unit_env("OPENCODE_BIN", shutil.which("opencode") or "opencode"),
+        unit_env("KANBAN_IMPORT_MODEL", os.environ.get("KANBAN_IMPORT_MODEL", "opencode/glm-5.3-flash-free")),
+        "StandardOutput=journal",
+        "StandardError=journal",
+        "SyslogIdentifier=kanban-todoist",
+        "RuntimeMaxSec=15min",
+        "UMask=0077",
+        "",
+    ]))
+    private_write(timer, "\n".join([
+        "[Unit]",
+        "Description=Kanban: auto-import z Todoist co 2 godziny",
+        "",
+        "[Timer]",
+        "OnCalendar=*-*-* 00/2:05:00",
+        "Persistent=true",
+        "AccuracySec=1min",
+        "RandomizedDelaySec=5min",
+        "Unit=agent-kanban-todoist-import.service",
+        "",
+        "[Install]",
+        "WantedBy=timers.target",
+        "",
+    ]))
+    run(["systemctl", "--user", "daemon-reload"])
+    run(["systemctl", "--user", "enable", "--now", "agent-kanban-todoist-import.timer"])
+    run(["systemctl", "--user", "restart", "agent-kanban-todoist-import.timer"])
+    try:
+        run(["loginctl", "enable-linger", os.environ.get("USER", "")])
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"Ostrzeżenie: loginctl enable-linger nie powiodło się: {error}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", help="Prebuilt binary for this host instead of a source build")
     parser.add_argument("--port", type=int, default=4765)
     parser.add_argument("--no-widget", action="store_true")
+    parser.add_argument("--no-timer", action="store_true", help="Nie instaluj timera auto-importu z Todoist; wyłącz istniejący, jeśli jest")
     parser.add_argument("--yes", action="store_true", help="Approve the printed install plan")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
@@ -127,8 +194,11 @@ def main():
     install_core(args, binary, args.backups)
     if not args.no_widget:
         install_widget(binary, args.backups)
+    install_todoist_autoimport(args, args.backups)
     print(f"Installed. Backups: {args.backups}")
     print("Widget → licznik. CLI dla AI: omarchy-kanban task add \"…\" / list / move / edit / rm")
+    if not args.no_timer:
+        print("Auto-import z Todoist: timer ~/.config/systemd/user/agent-kanban-todoist-import.timer; podgląd logu: journalctl --user -u agent-kanban-todoist-import -n 50")
 
 
 if __name__ == "__main__":

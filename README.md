@@ -45,7 +45,7 @@ omarchy-kanban task add "Tytuł" --status doing --notes "kontekst"
 omarchy-kanban task move <id> done
 omarchy-kanban task edit <id> --title "…" --notes "…"
 omarchy-kanban task rm <id>
-omarchy-kanban todoist status              # enabled / last_sync / błąd / liczba linków
+omarchy-kanban todoist status [--json]      # enabled / last_sync / błąd / liczba linków
 omarchy-kanban todoist candidates [--json] # dziś + zaległe z Todoist, do decyzji AI
 omarchy-kanban todoist import <id>… [--status todo|doing|done]
 omarchy-kanban todoist sync                # wymuś cykl synchronizacji
@@ -72,6 +72,14 @@ Co robi integracja:
 
 - **Import**: AI czyta `todoist candidates` i wciąga na TODO tylko zadania, które da
   się zrobić przy komputerze. Core sam nic nie importuje.
+- **Auto-import (opcjonalnie)**: timer systemd co 2 h uruchamia
+  `omarchy-kanban-todoist-import` — skrypt poza Core, który pyta model przez
+  `opencode run`, waliduje odpowiedź i woła `todoist import`. Błędy idą tylko do
+  journald, bez powiadomień. Konfiguracja: `KANBAN_IMPORT_MODEL` w unicie
+  (`systemctl --user edit agent-kanban-todoist-import.service`), domyślnie
+  `opencode/glm-5.3-flash-free`. Podgląd: `omarchy-kanban-todoist-import --dry-run`
+  oraz `journalctl --user -u agent-kanban-todoist-import -n 50`. Wyłączenie:
+  `python3 install.py --no-timer --yes`.
 - **Statusy w obie strony**: karta → DONE zamyka zadanie w Todoist; zamknięcie
   w Todoist przenosi kartę na DONE; cofnięcie karty z DONE otwiera zadanie ponownie.
   Cykl leci co 60 s; ręcznie: `omarchy-kanban todoist sync`.
@@ -124,6 +132,8 @@ cargo test --all-targets --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo build --release --locked
 python3 tests/todoist_e2e.py        # import → close → reopen → pull na fałszywym Todoist
+python3 tests/todoist_autoimport.py # auto-import: 18 scenariuszy na stubach modelu i CLI
+python3 tests/install_test.py       # instalator w sandboxie (jednostki, timer, uprawnienia)
 ```
 
 Katalogi `web/`, `tests/` i `README-legacy.md` pochodzą z poprzedniej wersji

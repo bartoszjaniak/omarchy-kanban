@@ -243,7 +243,8 @@ Drop-in `10-todoist.conf` (token) jest osobnym plikiem i przeżywa reinstalację
 4. Prompt (maks. `KANBAN_IMPORT_MAX_CANDIDATES` zadań; nadmiar → log
    `kandydaci=N do_promptu=M`) → `timeout 180 opencode run --standalone
    --model <model> <prompt>`. Błąd/timeout → log, exit 1.
-5. Parsowanie i walidacja (§7.3). Zero poprawnych id → log, exit 0.
+5. Parsowanie i walidacja (§7.3). Zero poprawnych id przy niepustej odpowiedzi
+   modelu → log, exit 1; `import: []` → log, exit 0.
 6. `--dry-run`: wypisz decyzję, exit 0, bez importu.
 7. `import <id>…` (timeout 120 s, jedno wywołanie). Wynik CLI logowany.
 8. Podsumowanie w jednej linii:
