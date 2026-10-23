@@ -84,7 +84,11 @@ enum TaskCommand {
 #[derive(Subcommand)]
 enum TodoistCommand {
     /// Show integration status.
-    Status,
+    Status {
+        /// Machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// List tasks due today or overdue and not yet on the board.
     Candidates {
         /// Machine-readable JSON.
@@ -320,10 +324,14 @@ fn skip_reason(reason: &str) -> &str {
 async fn todoist_command(data_dir: &Path, command: TodoistCommand) -> Result<()> {
     let api = Api::connect(data_dir)?;
     match command {
-        TodoistCommand::Status => {
+        TodoistCommand::Status { json } => {
             let status = api
                 .call(reqwest::Method::GET, "/api/todoist/status", Value::Null)
                 .await?;
+            if json {
+                println!("{}", serde_json::to_string(&status)?);
+                return Ok(());
+            }
             if status["enabled"].as_bool().unwrap_or(false) {
                 println!("Todoist: włączone");
             } else {
