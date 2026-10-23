@@ -31,7 +31,7 @@
   <main class="lg:col-span-9 p-6 md:p-10 lg:p-12 bg-[#f5f0e8]" id="spec-content">
     <section class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 md:p-8 shadow-[4px_4px_0px_#1a1a1a]">
       <h1 class="font-['Space_Grotesk'] text-2xl md:text-4xl font-bold tracking-tight mb-4 leading-tight">Auto-import z Todoist (timer + AI)</h1>
-      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Automatyczna decyzja o imporcie zadań z Todoist na tablicę: timer systemd użytkownika budzi skrypt orkiestrujący, który przez opencode run pyta model o ocenę kandydatów i importuje wykonalne. Osobny składnik poza Core, zero nowych zależności, brak powiadomień — tylko journald.</p>
+      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Automatyczny import zadań z Todoist co 2 godziny: timer systemd użytkownika budzi skrypt orkiestrujący, który przez opencode run pyta model o decyzję i wywołuje CLI omarchy-kanban todoist import. Decyzja o imporcie pozostaje poza Core zgodnie z decyzją ze specyfikacji sync.</p>
     </section>
 
     <section id="cel-i-uzasadnienie">
@@ -65,7 +65,7 @@
 </section>
 
 <section id="rozwazane-strategie">
-  <h2>Rozważane strategie implementacji (bez kodu)</h2>
+  <h2>Rozważane strategie implementacji</h2>
   <table>
     <thead><tr><th>Wariant</th><th>Ocena</th></tr></thead>
     <tbody>
@@ -89,16 +89,63 @@
 
 <section id="architektura">
   <h2>Architektura</h2>
-<pre><code>systemd user --timer (co 2 h)--> agent-kanban-todoist-import.service (oneshot)
-                                        |
-                                        v
-                        ~/.local/bin/omarchy-kanban-todoist-import   (Python 3, stdlib)
-                          |                    |                     |
-                          | status/candidates  | opencode run        | import &lt;id&gt;...
-                          v                    v                     v
-                   Core 127.0.0.1:4765    model (domyslnie     Core --&gt; Todoist API
-                   (token Todoist tam)    opencode/glm-5.3-flash-free)</code></pre>
-  <h3>Nowe pliki</h3>
+  <figure>
+    <figcaption>Schemat przepływu: timer → skrypt → model → import</figcaption>
+    <svg viewBox="0 0 700 300" role="img" style="min-width:640px">
+      <defs>
+        <pattern id="bh-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.2" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
+        </pattern>
+        <marker id="bh-arrow" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
+        </marker>
+      </defs>
+      <rect width="700" height="300" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
+      <rect width="700" height="300" fill="url(#bh-grid)"></rect>
+      <g transform="translate(20, 20)">
+        <rect width="180" height="56" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="180" height="22" fill="#1a1a1a"></rect>
+        <text x="8" y="15" fill="#ffffff" font-size="9" font-weight="bold">systemd user</text>
+        <text x="10" y="42" fill="#1a1a1a" font-size="9">timer (co 2 h)</text>
+        <text x="10" y="52" fill="#1a1a1a" font-size="9">service (oneshot)</text>
+      </g>
+      <path d="M 200 48 L 250 48" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow)"></path>
+      <g transform="translate(255, 20)">
+        <rect width="180" height="56" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="180" height="22" fill="#0055ff"></rect>
+        <text x="8" y="15" fill="#ffffff" font-size="9" font-weight="bold">~/.local/bin/…import</text>
+        <text x="10" y="42" fill="#1a1a1a" font-size="9">Python 3, stdlib</text>
+      </g>
+      <path d="M 445 48 L 495 48" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-arrow)"></path>
+      <g transform="translate(500, 20)">
+        <rect width="180" height="56" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="180" height="22" fill="#ffcc00"></rect>
+        <text x="8" y="15" fill="#1a1a1a" font-size="9" font-weight="bold">opencode run</text>
+        <text x="10" y="42" fill="#1a1a1a" font-size="9">model (dom.</text>
+        <text x="10" y="52" fill="#1a1a1a" font-size="9">opencode/glm-5.3-flash-free)</text>
+      </g>
+      <g transform="translate(70, 150)">
+        <rect width="190" height="56" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="190" height="22" fill="#1a1a1a"></rect>
+        <text x="8" y="15" fill="#ffffff" font-size="9" font-weight="bold">Core 127.0.0.1:4765</text>
+        <text x="10" y="42" fill="#1a1a1a" font-size="9">status / candidates</text>
+        <text x="10" y="52" fill="#1a1a1a" font-size="9">token Todoist tam</text>
+      </g>
+      <path d="M 345 76 L 260 76 L 260 178 L 265 178" stroke="#1a1a1a" stroke-width="2.5" fill="none" marker-end="url(#bh-arrow)"></path>
+      <text x="180" y="120" fill="#1a1a1a" font-size="9" font-weight="bold">CLI → HTTP Core</text>
+      <g transform="translate(430, 150)">
+        <rect width="190" height="56" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="190" height="22" fill="#0055ff"></rect>
+        <text x="8" y="15" fill="#ffffff" font-size="9" font-weight="bold">Core → Todoist API</text>
+        <text x="10" y="42" fill="#1a1a1a" font-size="9">import &lt;id&gt;…</text>
+      </g>
+      <path d="M 445 76 L 525 76 L 525 178 L 525 178" stroke="#1a1a1a" stroke-width="2.5" fill="none" marker-end="url(#bh-arrow)"></path>
+      <text x="480" y="120" fill="#1a1a1a" font-size="9" font-weight="bold">import &lt;id&gt;…</text>
+      <path d="M 160 48 L 160 178 L 165 178" stroke="#1a1a1a" stroke-width="2.5" fill="none" marker-end="url(#bh-arrow)"></path>
+      <text x="80" y="100" fill="#1a1a1a" font-size="9" font-weight="bold">budzi</text>
+    </svg>
+  </figure>
+  <p>Nowe pliki:</p>
   <table>
     <thead><tr><th>Plik</th><th>Rola</th></tr></thead>
     <tbody>
@@ -108,7 +155,7 @@
       <tr><td><code>tests/todoist_autoimport.py</code></td><td>test procesowy ze stubami</td></tr>
     </tbody>
   </table>
-  <h3>Zmieniane</h3>
+  <p>Zmieniane:</p>
   <table>
     <thead><tr><th>Plik</th><th>Zmiana</th></tr></thead>
     <tbody>
@@ -122,12 +169,12 @@
 
 <section id="interfejs">
   <h2>Interfejs</h2>
-  <h3>7.1 CLI</h3>
+  <h3>CLI</h3>
   <p>Nowa flaga istniejącej komendy:</p>
-<pre><code>omarchy-kanban todoist status --json   # {"enabled":bool,"last_sync":int|null,"last_error":str|null,"linked":int}</code></pre>
+  <pre><code>omarchy-kanban todoist status --json   # {"enabled":bool,"last_sync":int|null,"last_error":str|null,"linked":int}</code></pre>
   <p>Skrypt:</p>
-<pre><code>omarchy-kanban-todoist-import            # pelny cykl (timer)
-omarchy-kanban-todoist-import --dry-run  # pokaz decyzje modelu, nic nie importuj</code></pre>
+  <pre><code>omarchy-kanban-todoist-import            # pełny cykl (timer)
+omarchy-kanban-todoist-import --dry-run  # pokaż decyzję modelu, nic nie importuj</code></pre>
   <p>Zmienne środowiskowe (domyślne w skrypcie, nadpisywane w unicie/drop-inie):</p>
   <table>
     <thead><tr><th>Zmienna</th><th>Domyślnie</th><th>Znaczenie</th></tr></thead>
@@ -139,21 +186,21 @@ omarchy-kanban-todoist-import --dry-run  # pokaz decyzje modelu, nic nie importu
     </tbody>
   </table>
 
-  <h3>7.2 Prompt (stały tekst w skrypcie)</h3>
-  <p>Tekst jest częścią kontraktu: zmiana treści = zmiana zachowania. Zmienne wstawiane są tylko w miejscu <code>&lt;&lt;&lt;ZADANIA&gt;&gt;&gt;</code>.</p>
-<pre><code>Jestes filtrem zadan. Otrzymasz liste zadan z Todoist (JSON).
-Zdecyduj, ktore z nich da sie wykonac przy komputerze, siedzac przed nim.
+  <h3>Prompt (stały tekst w skrypcie)</h3>
+  <blockquote><strong>Kontrakt</strong><p>Tekst jest częścią kontraktu: zmiana treści = zmiana zachowania. Zmienne wstawiane są tylko w miejscu <code>&lt;&lt;&lt;ZADANIA&gt;&gt;&gt;</code>.</p></blockquote>
+  <pre><code>Jesteś filtrem zadań. Otrzymasz listę zadań z Todoist (JSON).
+Zdecyduj, które z nich da się wykonać przy komputerze, siedząc przed nim.
 
-Komputerowo wykonalne: pisanie, kodowanie, wysylanie maili i ofert, zamawianie
-rzeczy online, wypelnianie formularzy, research, rozmowy, platnosci, rezerwacje.
-Niewykonalne: prace fizyczne w domu i warsztacie (sprzatanie, mycie, malowanie,
-odkamienianie, naprawy, montaz), wizyty, zakupy w sklepie stacjonarnym.
-Brak opisu nie jest bledem - oceń po tresci zadania.
+Komputerowo wykonalne: pisanie, kodowanie, wysyłanie maili i ofert, zamawianie
+rzeczy online, wypełnianie formularzy, research, rozmowy, płatności, rezerwacje.
+Niewykonalne: prace fizyczne w domu i warsztacie (sprzątanie, mycie, malowanie,
+odkamienianie, naprawy, montaż), wizyty, zakupy w sklepie stacjonarnym.
+Brak opisu nie jest błędem — oceń po treści zadania.
 
 Zasady odpowiedzi:
-- Zwroc WYLACZNIE obiekt JSON, bez prozy, komentarzy i blokow markdown.
-- Format: {"import":[{"id":"&lt;id&gt;","reason":"&lt;jedno zdanie, max 120 znakow&gt;"}]}
-- "id" kopiuj doslownie z listy; nigdy nie wymyslaj ani nie modyfikuj id.
+- Zwróć WYŁĄCZNIE obiekt JSON, bez prozy, komentarzy i bloków markdown.
+- Format: {"import":[{"id":"&lt;id&gt;","reason":"&lt;jedno zdanie, max 120 znaków&gt;"}]}
+- "id" kopiuj dosłownie z listy; nigdy nie wymyślaj ani nie modyfikuj id.
 - Zadanie niewykonalne po prostu pomiń (nie wypisuj go).
 - Gdy nic nie jest wykonalne: {"import":[]}
 
@@ -161,7 +208,7 @@ Zadania:
 &lt;&lt;&lt;ZADANIA&gt;&gt;&gt;</code></pre>
   <p>Zadania wstawiane jako JSON, każde z polami: <code>id</code>, <code>content</code>, <code>description</code> (przycięte do 300 znaków), <code>due</code>. Bez etykiet, priorytetu i projektu — nie wpływają na decyzję, a zwiększają wariancję.</p>
 
-  <h3>7.3 Kontrakt odpowiedzi modelu</h3>
+  <h3>Kontrakt odpowiedzi modelu</h3>
   <p>Zasady parsowania i walidacji:</p>
   <ol>
     <li>Znajdź pierwszy <code>{</code> w odpowiedzi i parsuj od niego <code>json.JSONDecoder().raw_decode</code> (stdlib) — proza wokół i nawiasy w stringach nie psują parsowania.</li>
@@ -173,8 +220,8 @@ Zadania:
     <li>Odrzucenie jest <strong>per element</strong>: poprawne id są importowane, reszta logowana. Gdy model zwrócił same niepoprawne elementy → brak wywołania <code>import</code>, exit 1 (§7.3 pkt 2). Pusta lista <code>import: []</code> → exit 0.</li>
   </ol>
 
-  <h3>7.4 Jednostki systemd</h3>
-<pre><code># agent-kanban-todoist-import.service
+  <h3>Jednostki systemd</h3>
+  <pre><code># agent-kanban-todoist-import.service
 [Unit]
 Description=Kanban: auto-import z Todoist (AI)
 After=network.target
@@ -183,13 +230,13 @@ ConditionPathExists=%h/.local/bin/omarchy-kanban-todoist-import
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/omarchy-kanban-todoist-import
-Environment="PATH=..."
-Environment=OPENCODE_BIN=...
+Environment="PATH=…"
+Environment=OPENCODE_BIN=…
 Environment=KANBAN_IMPORT_MODEL=opencode/glm-5.3-flash-free
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=kanban-todoist
-RuntimeMaxSec=15min
+TimeoutStartSec=15min
 UMask=0077
 
 # agent-kanban-todoist-import.timer
@@ -208,11 +255,11 @@ WantedBy=timers.target</code></pre>
   <ul>
     <li><code>PATH</code> — ta sama wartość, którą <code>install.py</code> wpisuje do usługi Core.</li>
     <li><code>OPENCODE_BIN</code> — <code>shutil.which("opencode")</code> w chwili instalacji; gdy nie znaleziony, wpisujemy <code>opencode</code> i polegamy na <code>PATH</code>.</li>
-    <li>Service nie ma <code>[Install]</code> (aktywuje go timer); <code>TimeoutStartSec</code> zbędne przy <code>RuntimeMaxSec</code>.</li>
+    <li>Service nie ma <code>[Install]</code> (aktywuje go timer). <code>TimeoutStartSec</code> jest jedynym działającym limitem czasu: <code>RuntimeMaxSec</code> systemd ignoruje dla <code>Type=oneshot</code> (ostrzeżenie w <code>systemd-analyze verify</code>).</li>
     <li>Token Todoist <strong>nie</strong> trafia do tych jednostek.</li>
   </ul>
 
-  <h3>7.5 Instalacja (<code>install.py</code>)</h3>
+  <h3>Instalacja (<code>install.py</code>)</h3>
   <ol>
     <li><code>private_write</code> skryptu do <code>~/.local/bin/omarchy-kanban-todoist-import</code> + <code>chmod 0755</code>.</li>
     <li><code>private_write</code> obu jednostek do <code>~/.config/systemd/user/</code>.</li>
@@ -227,20 +274,20 @@ WantedBy=timers.target</code></pre>
 
 <section id="przeplywy-danych">
   <h2>Przepływy danych</h2>
-  <h3>8.1 Cykl (co 2 h)</h3>
+  <h3>Cykl (co 2 h)</h3>
   <ol>
     <li><code>flock -n</code> na <code>$XDG_RUNTIME_DIR/kanban-todoist-import.lock</code>; gdy zmienna pusta — <code>/run/user/&lt;uid&gt;</code>, a gdy katalog niedostępny — katalog tymczasowy. Zajęty → log „poprzedni cykl trwa", exit 0.</li>
     <li><code>todoist status --json</code> (timeout 30 s). <code>enabled=false</code> → log, exit 0. <code>last_error</code> → log ostrzeżenia, kontynuuj.</li>
     <li><code>candidates --json</code> (timeout 30 s). Pusto → log, exit 0 bez wołania modelu.</li>
     <li>Prompt (maks. <code>KANBAN_IMPORT_MAX_CANDIDATES</code> zadań; nadmiar → log <code>kandydaci=N do_promptu=M</code>) → <code>timeout 180 opencode run --standalone --model &lt;model&gt; &lt;prompt&gt;</code>. Błąd/timeout → log, exit 1.</li>
-    <li>Parsowanie i walidacja (§7.3). Zero poprawnych id → log, exit 0.</li>
+    <li>Parsowanie i walidacja (§7.3). Zero poprawnych id przy niepustej odpowiedzi modelu → log, exit 1; <code>import: []</code> → log, exit 0.</li>
     <li><code>--dry-run</code>: wypisz decyzję, exit 0, bez importu.</li>
     <li><code>import &lt;id&gt;…</code> (timeout 120 s, jedno wywołanie). Wynik CLI logowany.</li>
     <li>Podsumowanie w jednej linii: <code>todoist-import: cykl kandydaci=N do_promptu=M import=K odrzucone=J</code>.</li>
   </ol>
   <p>Każda linia logu ma prefiks <code>todoist-import:</code> (journald dodaje jeszcze <code>SyslogIdentifier=kanban-todoist</code>).</p>
 
-  <h3>8.2 Awarie</h3>
+  <h3>Awarie</h3>
   <table>
     <thead><tr><th>Sytuacja</th><th>Zachowanie</th></tr></thead>
     <tbody>
@@ -259,7 +306,7 @@ WantedBy=timers.target</code></pre>
     </tbody>
   </table>
   <p>Kody wyjścia CLI, na których opiera się skrypt: <code>0</code> gdy operacja się odbyła (także gdy wszystkie pozycje pominięto), <code>≠0</code> przy błędzie transportu/HTTP.</p>
-  <p>Brak powiadomień desktopowych. Jedyny kanał: journald.</p>
+  <blockquote data-tone="danger"><strong>Ryzyko</strong><p>Brak powiadomień desktopowych. Jedyny kanał: journald.</p></blockquote>
 </section>
 
 <section id="wymagania-niefunkcjonalne">
@@ -268,7 +315,7 @@ WantedBy=timers.target</code></pre>
     <li><strong>Zero nowych zależności</strong> — Python 3 stdlib; w Rust tylko flaga <code>--json</code> (bez nowych crate'ów).</li>
     <li><strong>Sekrety</strong> — skrypt nie czyta tokenu Todoist ani tokenu Core (CLI robi to sam); token nie trafia do argv, unitu ani logu. <code>reason</code> z modelu nie trafia do Core.</li>
     <li><strong>Izolacja</strong> — awaria skryptu nie dotyka <code>agent-kanban.service</code>.</li>
-    <li><strong>Odporność</strong> — <code>flock</code> + <code>RuntimeMaxSec</code> + timeouty na każde wywołanie zewnętrzne; brak kumulacji po suspendzie (<code>Persistent=true</code> nadrabia jedno uruchomienie).</li>
+    <li><strong>Odporność</strong> — <code>flock</code> + <code>TimeoutStartSec</code> + timeouty na każde wywołanie zewnętrzne; brak kumulacji po suspendzie (<code>Persistent=true</code> nadrabia jedno uruchomienie).</li>
     <li><strong>Koszt</strong> — 12 wywołań modelu dziennie, prompt ≤ 100 kandydatów × ~300 znaków.</li>
     <li><strong>Limity Todoist</strong> — kilka żądań na cykl, daleko od 1000/15 min.</li>
     <li><strong>Observability</strong> — jedna linia podsumowania na cykl; podgląd <code>journalctl --user -u agent-kanban-todoist-import -n 50</code>.</li>
@@ -328,7 +375,7 @@ WantedBy=timers.target</code></pre>
 
     <footer class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 shadow-[4px_4px_0px_#1a1a1a] flex flex-wrap items-center justify-between gap-4 font-['Space_Grotesk']">
       <span class="font-mono text-xs uppercase text-[#1a1a1a]/70">Auto-import z Todoist (timer + AI)</span>
-      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="docs/specs/todoist-autoimport.md">Źródło: docs/specs/todoist-autoimport.md</a>
+      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="todoist-autoimport.md">Źródło: todoist-autoimport.md</a>
     </footer>
   </main>
 </div>

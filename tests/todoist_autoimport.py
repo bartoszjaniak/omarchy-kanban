@@ -32,6 +32,9 @@ def emit(payload_name, exit_name):
     payload = os.environ.get(payload_name)
     if payload is not None:
         sys.stdout.write(payload)
+    err = os.environ.get(payload_name + "_ERR")
+    if err is not None:
+        sys.stderr.write(err)
     sys.exit(int(os.environ.get(exit_name, "0")))
 
 if args[:2] == ["todoist", "status"]:
@@ -452,6 +455,53 @@ def case_18():
         h.close()
 
 
+def case_19():
+    h = Harness()
+    try:
+        h.set(
+            STUB_CANDIDATES=json.dumps({"tasks": [task("a")]}),
+            STUB_MODEL_OUT=answer([]),
+        ).run()
+        check(h.code == 0, f"exit {h.code}, stderr={h.stderr!r}")
+        check(h.imports() == [], f"import wołany: {h.kanban_calls()}")
+        check("import=0" in h.stderr, f"podsumowanie bez import=0: {h.stderr!r}")
+        h.assert_summary_once()
+    finally:
+        h.close()
+
+
+def case_20():
+    h = Harness()
+    try:
+        long_line = "E" * 300
+        h.set(
+            STUB_STATUS_EXIT=2,
+            STUB_STATUS_ERR="pierwsza linia\n" + long_line + "\n",
+        ).run()
+        check(h.code == 1, f"exit {h.code}, stderr={h.stderr!r}")
+        check(h.imports() == [], f"import wołany: {h.kanban_calls()}")
+        check(h.opencode_calls() == [], f"model wołany: {h.opencode_calls()}")
+        check("E" * 200 in h.stderr, f"brak ostatniej linii stderr: {h.stderr!r}")
+        check("E" * 201 not in h.stderr, f"linia nie obcięta do 200 znaków: {h.stderr!r}")
+    finally:
+        h.close()
+
+
+def case_21():
+    h = Harness()
+    try:
+        h.set(
+            OPENCODE_BIN=str(h.root / "nie-ma-takiego-pliku"),
+            STUB_CANDIDATES=json.dumps({"tasks": [task("a")]}),
+            STUB_MODEL_OUT=answer([{"id": "a", "reason": "ok"}]),
+        ).run()
+        check(h.code == 1, f"exit {h.code}, stderr={h.stderr!r}")
+        check(h.imports() == [], f"import wołany: {h.kanban_calls()}")
+        check("brak polecenia" in h.stderr, f"brak logu braku polecenia: {h.stderr!r}")
+    finally:
+        h.close()
+
+
 CASES = [
     ("1 model wskazuje jednego z dwóch", case_01),
     ("2 id spoza kandydatów odrzucone", case_02),
@@ -471,6 +521,9 @@ CASES = [
     ("16 reason nie w argv", case_16),
     ("17 wszystkie id odrzucone", case_17),
     ("18 last_error + import", case_18),
+    ("19 pusta lista import przy kandydatach", case_19),
+    ("20 status kod != 0 ze stderr", case_20),
+    ("21 opencode nie istnieje", case_21),
 ]
 
 
