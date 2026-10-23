@@ -188,7 +188,7 @@ Environment=KANBAN_IMPORT_MODEL=opencode/glm-5.3-flash-free
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=kanban-todoist
-RuntimeMaxSec=15min
+TimeoutStartSec=15min
 UMask=0077
 
 # agent-kanban-todoist-import.timer
@@ -209,8 +209,9 @@ WantedBy=timers.target
 - `PATH` — ta sama wartość, którą `install.py` wpisuje do usługi Core.
 - `OPENCODE_BIN` — `shutil.which("opencode")` w chwili instalacji; gdy nie
   znaleziony, wpisujemy `opencode` i polegamy na `PATH`.
-- Service nie ma `[Install]` (aktywuje go timer); `TimeoutStartSec` zbędne przy
-  `RuntimeMaxSec`.
+- Service nie ma `[Install]` (aktywuje go timer). `TimeoutStartSec` jest
+  jedynym działającym limitem czasu: `RuntimeMaxSec` systemd ignoruje dla
+  `Type=oneshot` (ostrzeżenie w `systemd-analyze verify`).
 - Token Todoist **nie** trafia do tych jednostek.
 
 ### 7.5 Instalacja (`install.py`)
@@ -282,7 +283,7 @@ Brak powiadomień desktopowych. Jedyny kanał: journald.
 - **Sekrety** — skrypt nie czyta tokenu Todoist ani tokenu Core (CLI robi to sam);
   token nie trafia do argv, unitu ani logu. `reason` z modelu nie trafia do Core.
 - **Izolacja** — awaria skryptu nie dotyka `agent-kanban.service`.
-- **Odporność** — `flock` + `RuntimeMaxSec` + timeouty na każde wywołanie
+- **Odporność** — `flock` + `TimeoutStartSec` + timeouty na każde wywołanie
   zewnętrzne; brak kumulacji po suspendzie (`Persistent=true` nadrabia jedno
   uruchomienie).
 - **Koszt** — 12 wywołań modelu dziennie, prompt ≤ 100 kandydatów × ~300 znaków.

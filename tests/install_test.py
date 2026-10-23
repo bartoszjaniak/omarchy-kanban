@@ -150,9 +150,9 @@ for system in ("Linux", "Darwin"):
             "ExecStart=%h/.local/bin/omarchy-kanban-todoist-import",
             "ConditionPathExists",
             'Environment="PATH=',
-            "Environment=OPENCODE_BIN=",
-            "Environment=KANBAN_IMPORT_MODEL=",
-            "RuntimeMaxSec=15min",
+            'Environment="OPENCODE_BIN=',
+            'Environment="KANBAN_IMPORT_MODEL=',
+            "TimeoutStartSec=15min",
             "SyslogIdentifier=kanban-todoist",
             "StandardOutput=journal",
         ):
@@ -195,7 +195,7 @@ with sandbox("Linux") as (home, args, backups, commands):
 with sandbox("Linux") as (home, args, backups, commands):
     with patch.object(installer.shutil, "which", return_value=None):
         installer.install_todoist_autoimport(args, backups)
-    assert "Environment=OPENCODE_BIN=opencode" in (user_units(home) / IMPORT_UNIT).read_text()
+    assert 'Environment="OPENCODE_BIN=opencode"' in (user_units(home) / IMPORT_UNIT).read_text()
 
 # Failing loginctl (no polkit) is a warning, not an install error.
 with sandbox("Linux", loginctl_raises=True) as (home, args, backups, commands):

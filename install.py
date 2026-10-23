@@ -42,8 +42,7 @@ def quote(value):
 
 
 def unit_env(name, value):
-    text = f"{name}={value}"
-    return "Environment=" + (quote(text) if " " in text else text.replace("%", "%%"))
+    return "Environment=" + quote(f"{name}={value}")
 
 
 def backup(path, folder):
@@ -149,7 +148,7 @@ def install_todoist_autoimport(args, backups):
         "StandardOutput=journal",
         "StandardError=journal",
         "SyslogIdentifier=kanban-todoist",
-        "RuntimeMaxSec=15min",
+        "TimeoutStartSec=15min",
         "UMask=0077",
         "",
     ]))
@@ -171,10 +170,14 @@ def install_todoist_autoimport(args, backups):
     run(["systemctl", "--user", "daemon-reload"])
     run(["systemctl", "--user", "enable", "--now", "agent-kanban-todoist-import.timer"])
     run(["systemctl", "--user", "restart", "agent-kanban-todoist-import.timer"])
-    try:
-        run(["loginctl", "enable-linger", os.environ.get("USER", "")])
-    except (OSError, subprocess.CalledProcessError) as error:
-        print(f"Ostrzeżenie: loginctl enable-linger nie powiodło się: {error}", file=sys.stderr)
+    user = os.environ.get("USER") or os.environ.get("LOGNAME")
+    if user:
+        try:
+            run(["loginctl", "enable-linger", user])
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(f"Ostrzeżenie: loginctl enable-linger nie powiodło się: {error}", file=sys.stderr)
+    else:
+        print("Ostrzeżenie: nie znam nazwy użytkownika — pominięto loginctl enable-linger", file=sys.stderr)
 
 
 def main():

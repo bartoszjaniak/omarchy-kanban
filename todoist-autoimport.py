@@ -92,6 +92,13 @@ def run_capture(args, timeout):
         raise CycleError(f"nie uruchomiono {args[0]}: {error}") from None
 
 
+def failure(result, what):
+    """CycleError z ostatnią linią stderr, żeby journald miał przyczynę."""
+    detail = (result.stderr or "").strip().splitlines()
+    suffix = f": {detail[-1][:200]}" if detail else ""
+    return CycleError(f"{what} zakończył się kodem {result.returncode}{suffix}")
+
+
 def parse_json(text, what):
     """Parsuje JSON z wyjścia CLI; brak poprawnego JSON-a → CycleError."""
     try:
@@ -118,7 +125,7 @@ def acquire_lock():
     """Nieblokujący flock; zwraca deskryptor albo None, gdy cykl już trwa."""
     path = lock_path()
     try:
-        handle = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+        handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     except OSError as error:
         raise CycleError(f"nie otworzono locka {path}: {error}") from None
     try:
@@ -133,7 +140,7 @@ def read_status(binary):
     """`todoist status --json`; kod ≠0 → CycleError."""
     result = run_capture([binary, "todoist", "status", "--json"], STATUS_TIMEOUT)
     if result.returncode != 0:
-        raise CycleError(f"status zakończył się kodem {result.returncode}")
+        raise failure(result, "status")
     return parse_json(result.stdout, "status")
 
 
@@ -141,7 +148,7 @@ def read_candidates(binary):
     """`todoist candidates --json`; zwraca listę zadań, kod ≠0 → CycleError."""
     result = run_capture([binary, "todoist", "candidates", "--json"], CANDIDATES_TIMEOUT)
     if result.returncode != 0:
-        raise CycleError(f"candidates zakończyły się kodem {result.returncode}")
+        raise failure(result, "candidates")
     payload = parse_json(result.stdout, "candidates")
     tasks = payload.get("tasks") if isinstance(payload, dict) else None
     if not isinstance(tasks, list):
@@ -173,7 +180,7 @@ def ask_model(opencode, model, prompt):
     args = [opencode, "run", "--standalone", "--model", model, prompt]
     result = run_capture(args, MODEL_TIMEOUT)
     if result.returncode != 0:
-        raise CycleError(f"opencode zakończył się kodem {result.returncode}")
+        raise failure(result, "opencode")
     return result.stdout or ""
 
 
@@ -235,7 +242,7 @@ def run_import(binary, accepted):
         for line in output.splitlines():
             log(line)
     if result.returncode != 0:
-        raise CycleError(f"import zakończył się kodem {result.returncode}")
+        raise failure(result, "import")
 
 
 def summary(candidates, prompt_count, imported, rejected):
