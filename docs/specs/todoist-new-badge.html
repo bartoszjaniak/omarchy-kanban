@@ -1,0 +1,710 @@
+<html lang="pl">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Todoist [NEW] badge</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#f5f0e8] text-[#1a1a1a] antialiased">
+<header class="sticky top-0 z-50 bg-[#f5f0e8] border-b-2 border-[#1a1a1a] px-4 md:px-8 py-3.5 flex items-center gap-3">
+  <div class="w-5 h-5 bg-[#e63b2e] border border-[#1a1a1a] shrink-0"></div>
+  <span class="font-['Space_Grotesk'] font-bold text-sm md:text-lg tracking-tight uppercase truncate">Todoist [NEW] badge</span>
+</header>
+
+<div class="max-w-[1400px] mx-auto grid grid-cols-1 lg:grid-cols-12 lg:border-x-2 border-[#1a1a1a]">
+  <!-- Lewa kolumna: indeks dokumentu (budowany automatycznie z sekcji) -->
+  <aside class="lg:col-span-3 border-b-2 lg:border-b-0 lg:border-r-2 border-[#1a1a1a] bg-[#eee9e0] p-6 lg:p-8 sticky lg:top-[57px] self-start lg:h-[calc(100vh-57px)] overflow-y-auto font-['Space_Grotesk']">
+    <div class="flex items-center justify-between pb-3 border-b-2 border-[#1a1a1a] mb-5">
+      <span class="text-xs font-bold tracking-widest uppercase font-mono">Indeks dokumentu</span>
+      <div class="w-2.5 h-2.5 bg-[#0055ff]"></div>
+    </div>
+    <nav class="space-y-1 text-sm font-medium" id="toc-nav" aria-label="Indeks dokumentu"></nav>
+  </aside>
+
+  <!-- Prawa kolumna: dokument -->
+  <main class="lg:col-span-9 p-6 md:p-10 lg:p-12 bg-[#f5f0e8]" id="spec-content">
+    <section class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 md:p-8 shadow-[4px_4px_0px_#1a1a1a]">
+      <h1 class="font-['Space_Grotesk'] text-2xl md:text-4xl font-bold tracking-tight mb-4 leading-tight">Todoist [NEW] badge</h1>
+      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Latwo rozpoznac swiezo zaimportowane karty Todoist na tablicy bez zmiany ich tytulow ani notatek. Badge [NEW] jest widoczny przez 24 godziny od importu.</p>
+    </section>
+
+<section id="cel-i-uzasadnienie">
+  <h2>Cel i uzasadnienie</h2>
+  <p>Latwo rozpoznac swiezo zaimportowane karty Todoist na tablicy bez zmiany ich tytulow ani notatek. Badge <code>[NEW]</code> ma byc widoczny przez 24 godziny od importu.</p>
+</section>
+
+<section id="opis-problemu">
+  <h2>Opis problemu</h2>
+  <p>Zaimportowana karta wyglada tak samo jak pozostale. Uzytkownik nie widzi od razu, ktore zadania pojawily sie niedawno dzieki integracji.</p>
+</section>
+
+<section id="przyjete-rozwiazanie">
+  <h2>Przyjete rozwiazanie</h2>
+  <p>Widget rysuje maly, nieinteraktywny badge <code>[NEW]</code> na karcie pochodzacej z Todoist, jesli od jej utworzenia minelo mniej niz 24 godziny.</p>
+  <ul>
+    <li>Rozpoznanie karty: <code>todoist_id != null</code>.</li>
+    <li>Czas rozpoczecia: istniejace <code>created_at</code> (epoch w sekundach), ustawiane przy utworzeniu/importowaniu karty.</li>
+    <li>Waznosc: <code>0 &lt;= now - created_at &lt; 86400</code> sekund.</li>
+    <li>Dziala w kazdej widocznej kolumnie TODO, In Progress i DONE; ruch karty nie resetuje ani nie konczy okresu.</li>
+    <li>Karty starsze niz 24 h nie maja badge&rsquo;a. Istniejaca karta Todoist mlodsza niz 24 h w chwili aktualizacji widgetu rowniez go pokaze.</li>
+    <li>Badge znika przy najblizszym odswiezeniu czasu w widgetcie (maksymalnie okolo minute po uplywie 24 h). Nie ma akcji recznego ukrywania.</li>
+  </ul>
+</section>
+
+<section id="rozwazane-strategie">
+  <h2>Rozwazane strategie implementacji (bez kodu)</h2>
+  <table>
+    <thead><tr><th>Wariant</th><th>Ocena</th></tr></thead>
+    <tbody>
+      <tr><td>Osobna kolumna <code>imported_at</code> i migracja SQLite</td><td>Odrzucony: <code>created_at</code> juz oznacza moment utworzenia karty i wystarcza dla importu.</td></tr>
+      <tr><td>Prefiks <code>[NEW]</code> w tytule lub notatce</td><td>Odrzucony: zmienia dane uzytkownika i moglby byc synchronizowany/edytowany jako tresc.</td></tr>
+      <tr><td>Badge w QML wyliczany z <code>todoist_id</code> i <code>created_at</code></td><td>Wybrany: bez zmian API, bazy, CLI i kontraktu synchronizacji.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="wzorce-architektoniczne">
+  <h2>Wzorce architektoniczne</h2>
+  <ul>
+    <li><strong>Dane pochodne w warstwie prezentacji</strong> &mdash; badge nie jest zapisywany; widget wylicza go z pol karty.</li>
+    <li><strong>Jedno zrodlo prawdy</strong> &mdash; <code>created_at</code> i <code>todoist_id</code> z Core, bez drugiego stanu &bdquo;seen/dismissed&rdquo;.</li>
+  </ul>
+</section>
+
+<section id="architektura">
+  <h2>Architektura</h2>
+  <p>Zmiana ograniczona do <code>plugin/Widget.qml</code>:</p>
+  <ol>
+    <li><strong>Wspoldzielony zegar widgetu</strong> &mdash; aktualizowany raz na minute, gdy istnieje swieza karta Todoist; zatrzymany, gdy nie ma zadnej.</li>
+    <li><strong>Badge <code>[NEW]</code></strong> &mdash; jako maly wiersz metadanych w karcie, przed tytulem. Tytul i notatka pozostaja bez zmian.</li>
+    <li><strong>Widocznosc</strong> &mdash; zalezna od <code>todoist_id</code>, <code>created_at</code> i zegara. Karty lokalne bez <code>todoist_id</code> nigdy nie dostaja badge&rsquo;a.</li>
+  </ol>
+</section>
+
+<section id="interfejs">
+  <h2>Interfejs</h2>
+  <h3>Widok karty</h3>
+  <ul>
+    <li>Tekst badge&rsquo;a: dokladnie <code>[NEW]</code>.</li>
+    <li>Pozycja: osobny, krotki wiersz przed tytulem w istniejacym <code>contentColumn</code>.</li>
+    <li>Maly rozmiar zgodny z typografia widgetu (<code>Style.space()</code>), kompaktowe tlo i zaokraglenie. Uzyc istniejacego niebieskiego akcentu <code>#7aa2f7</code>; nie uzywac koloru statusu karty ani nie zmieniac paska statusu.</li>
+    <li>Tekst badge&rsquo;a niesie informacje niezaleznie od koloru; bez animacji, klikniecia, licznika ani dodatkowej akcji.</li>
+    <li>Nie zmieniac tresci karty w edytorze ani zachowania drag-and-drop.</li>
+  </ul>
+
+  <h3>Formula waznosci</h3>
+  <pre><code>ageSeconds = floor(nowMs / 1000) - task.created_at</code></pre>
+  <p>Badge widoczny, gdy <code>task.todoist_id</code> istnieje i <code>0 &lt;= ageSeconds &lt; 24 * 60 * 60</code>.</p>
+  <p><code>nowMs</code> odswieza sie co 60 sekund tylko wtedy, gdy co najmniej jedna karta ma badge. Przesuniecie czasu systemowego wstecz nie pokazuje badge&rsquo;a dla daty utworzenia lezacej w przyszlosci.</p>
+</section>
+
+<section id="przeplyw-danych">
+  <h2>Przeplyw danych</h2>
+  <figure>
+    <figcaption>Przeplyw danych: Core &rarr; Widget</figcaption>
+    <svg viewBox="0 0 600 200" role="img" style="min-width:560px">
+      <defs>
+        <pattern id="bh-g-1" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.15" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
+        </pattern>
+        <marker id="bh-a-1" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
+          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
+        </marker>
+      </defs>
+      <rect width="600" height="200" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
+      <rect width="600" height="200" fill="url(#bh-g-1)"></rect>
+
+      <g transform="translate(20, 30)">
+        <rect width="160" height="100" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="160" height="24" fill="#1a1a1a"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">01 // CORE</text>
+        <text x="12" y="48" fill="#1a1a1a" font-size="9">Zwraca istniejące pola</text>
+        <text x="12" y="66" fill="#1a1a1a" font-size="9"><tspan font-weight="bold">todoist_id</tspan> i <tspan font-weight="bold">created_at</tspan></text>
+        <text x="12" y="84" fill="#1a1a1a" font-size="9">w stanie tablicy.</text>
+      </g>
+
+      <path d="M 185 80 L 245 80" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-a-1)"></path>
+
+      <g transform="translate(250, 30)">
+        <rect width="160" height="100" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="160" height="24" fill="#0055ff"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">02 // WIDGET</text>
+        <text x="12" y="48" fill="#1a1a1a" font-size="9">Wylicza wiek karty</text>
+        <text x="12" y="66" fill="#1a1a1a" font-size="9">i widoczno�� <tspan font-weight="bold">[NEW]</tspan></text>
+        <text x="12" y="84" fill="#1a1a1a" font-size="9">Nie zapisuje zmian.</text>
+      </g>
+
+      <path d="M 335 130 L 335 165 L 100 165 L 100 135" stroke="#1a1a1a" stroke-width="2" fill="none" stroke-dasharray="4,3" marker-end="url(#bh-a-1)"></path>
+      <text x="175" y="156" fill="#1a1a1a" font-size="8">kolejny tick (24h)</text>
+
+      <g transform="translate(20, 150)">
+        <rect width="160" height="36" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
+        <rect width="160" height="24" fill="#e63b2e"></rect>
+        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">03 // BADGE UKRYTY</text>
+      </g>
+    </svg>
+    <ul>
+      <li><span style="width:.75rem;height:.75rem;background:#ffffff;border:1px solid #1a1a1a"></span>Stan z Core</li>
+      <li><span style="width:.75rem;height:.75rem;background:#0055ff;border:1px solid #1a1a1a"></span>Widok widgetu</li>
+      <li><span style="width:.75rem;height:.75rem;background:#e63b2e;border:1px solid #1a1a1a"></span>Stan po 24h</li>
+    </ul>
+  </figure>
+
+  <ol>
+    <li>Core zwraca istniejace pola <code>todoist_id</code> i <code>created_at</code> w stanie tablicy.</li>
+    <li>Widget wylicza wiek karty i widocznosc <code>[NEW]</code>; nie zapisuje zmian.</li>
+    <li>Po 24 godzinach kolejny tick zegara ukrywa badge.</li>
+    <li>Kolejne cykle sync nie zmieniaja czasu utworzenia karty, wiec nie odswiezaja badge&rsquo;a.</li>
+  </ol>
+</section>
+
+<section id="wymagania-niefunkcjonalne">
+  <h2>Wymagania niefunkcjonalne</h2>
+  <ul>
+    <li>Bez zmian SQLite, HTTP API, Rust, CLI, importu ani synchronizacji Todoist.</li>
+    <li>Bez nowych zaleznosci.</li>
+    <li>Zegar pracuje tylko, gdy istnieje swieza karta, i nie wykonuje zadan sieciowych.</li>
+    <li>Badge nie przeslania tytulu/notatki i nie zmienia statusu ani kolejnoci kart.</li>
+  </ul>
+</section>
+
+<section id="strategia-testowania">
+  <h2>Strategia testowania i przypadki testowe</h2>
+  <ul>
+    <li><input type="checkbox" checked/>Karta Todoist utworzona przed 24 h &rarr; badge <code>[NEW]</code> widoczny.</li>
+    <li><input type="checkbox" checked/>Karta Todoist utworzona dokladnie 24 h temu &rarr; badge ukryty.</li>
+    <li><input type="checkbox" checked/>Karta Todoist utworzona w przyszosci &rarr; badge ukryty.</li>
+    <li><input type="checkbox" checked/>Karta lokalna (<code>todoist_id = null</code>) utworzona przed chwila &rarr; badge ukryty.</li>
+    <li><input type="checkbox" checked/>Przeniesienie swiezej karty do In Progress lub DONE nie ukrywa badge&rsquo;a.</li>
+    <li><input type="checkbox" checked/>Upyw 24 h i nastpny minutowy tick ukrywa badge bez odswiezania Core.</li>
+    <li><input type="checkbox" checked/>Tytul/notatka, paska statusu i drag-and-drop zachowuja dotychczasowe dzialanie.</li>
+    <li><input type="checkbox" checked/><code>qmllint</code> (jesli jest zainstalowany) oraz wizualna kontrola widgetu po instalacji.</li>
+  </ul>
+</section>
+
+<section id="decyzje-uzytkownika">
+  <h2>Decyzje uytkownika</h2>
+  <ol>
+    <li>Uzyc malego badge&rsquo;a w UI, bez zmiany tytulu ani notatki.</li>
+    <li>Badge ma wygasnac 24 godziny od pojawienia sie.</li>
+    <li>Badge dotyczy kart zaimportowanych z Todoist; jego czas liczymy od utworzenia karty. Widocznosc obejmuje wszystkie kolumny, a nie tylko TODO.</li>
+  </ol>
+</section>
+
+<section id="otwarte-pytania">
+  <h2>Otwarte pytania i decyzje</h2>
+  <p>Brak otwartych pytan.</p>
+</section>
+
+<section id="runda-recenzji">
+  <h2>Runda recenzji: 1</h2>
+  <p>Wstepne rekomendacje UX/UI Rady uwzgledniono w &sect;7 i &sect;10: badge ma byc tekstowy, nieinteraktywny, krotki, uzywac istniejacego akcentu i nie modyfikowac danych.</p>
+</section>
+
+    <footer class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 shadow-[4px_4px_0px_#1a1a1a] flex flex-wrap items-center justify-between gap-4 font-['Space_Grotesk']">
+      <span class="font-mono text-xs uppercase text-[#1a1a1a]/70">Todoist [NEW] badge</span>
+      <a class="font-mono text-xs font-bold underline underline-offset-4 hover:bg-[#ffcc00]" href="docs/specs/todoist-new-badge.md">Źródło: docs/specs/todoist-new-badge.md</a>
+    </footer>
+  </main>
+</div>
+
+<!-- Komentarze: dymek edycyjny (pozycja wyliczana przy kliknieciu) -->
+<div id="sc-bubble" hidden role="dialog" aria-label="Komentarz do elementu">
+  <div class="sc-bubble-head">
+    <span class="sc-bubble-title">Komentarz</span>
+    <button id="sc-close" type="button" title="Zamknij (Esc)" aria-label="Zamknij">
+      <span class="material-symbols-outlined">close</span>
+    </button>
+  </div>
+  <textarea id="sc-input" placeholder="Treść komentarza..." aria-label="Treść komentarza"></textarea>
+  <div class="sc-bubble-actions">
+    <button id="sc-delete" type="button" hidden title="Usuń ten komentarz" aria-label="Usuń komentarz">
+      <span class="material-symbols-outlined">delete</span>
+    </button>
+    <span class="sc-hint">Enter = zapisz · Shift+Enter = nowa linia</span>
+    <button id="sc-save" type="button" title="Zapisz komentarz (Enter)" aria-label="Zapisz komentarz">
+      <span class="material-symbols-outlined">check</span>
+    </button>
+  </div>
+</div>
+
+<!-- Komentarze: indykatory istniejacych komentarzy (pozycje wyliczane w JS) -->
+<div id="sc-markers"></div>
+
+<!-- Komentarze: licznik (klik = kopiuj JSON do schowka) -->
+<div id="sc-widget">
+  <button id="sc-count" type="button" hidden></button>
+</div>
+<div id="sc-toast" role="status" aria-live="polite" hidden></div>
+
+<!-- ================== KONIEC TRESCI ==================
+     Powyzej konczy sie tresc dokumentu. Ponizszy blok stylow i skrypt pochodza w calosci
+     z szablonu. NIE EDYTUJ i NIE CZYTAJ go przy generowaniu podgladu. ================== -->
+<style>
+  /* Paleta: krem #f5f0e8 | panel #eee9e0 | karta #ffffff | tusz #1a1a1a
+     akcenty: żółty #ffcc00 | niebieski #0055ff | czerwony #e63b2e
+     Zasady: brak zaokrągleń, obramowania 2px, twardy cień offsetowy (shadow-[4px_4px_0px_#1a1a1a]). */
+  html, body { margin: 0; padding: 0; }
+  body { overscroll-behavior: none; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #1a1a1a; }
+  ::selection { background: #ffcc00; color: #1a1a1a; }
+  /* Style ponizej sa celowo w czystym CSS - elementy nawigacji naglowkow sekcji dokladane sa przez JS
+     po starcie Tailwind JIT (dynamiczne klasy moga nie zostac skompilowane). */
+  .sec-head { display: flex; align-items: center; gap: .75rem; border-bottom: 2px solid #1a1a1a; padding-bottom: .5rem; }
+  .sec-dot { width: 1rem; height: 1rem; border: 1px solid #1a1a1a; flex: none; }
+  .sec-num { font-family: "JetBrains Mono", monospace; font-weight: 700; margin-right: .5rem; }
+  .toc-item { display: block; padding: .375rem .625rem; border-left: 2px solid transparent; color: rgba(26,26,26,.8); transition: all .15s; }
+  .toc-item:hover { border-left-color: #1a1a1a; background: #f5f0e8; }
+  .toc-item.is-active { border-left-color: #1a1a1a; background: #f5f0e8; color: #1a1a1a; font-weight: 700; }
+  /* --- WARSTWA SEMANTYCZNA (obowiazujaca) ---
+     Agent pisze CZYSTY HTML bez klas - te reguly styluja elementy wewnatrz #spec-content.
+     Jedyne sygnaly, jakie moze dodac, to id sekcji oraz atrybut data-tone (danger|warn|info|neutral|ink). */
+  #spec-content { display: flex; flex-direction: column; gap: 3rem; }
+  #spec-content section { display: flex; flex-direction: column; gap: 1rem; }
+  #spec-content h2 { margin: 0; font-family: "Space_Grotesk", sans-serif; font-weight: 700; font-size: 1.5rem; line-height: 2rem; letter-spacing: -.01em; text-transform: uppercase; }
+  #spec-content h3 { margin: 0; font-family: "Space_Grotesk", sans-serif; font-weight: 700; font-size: 1rem; text-transform: uppercase; letter-spacing: .02em; }
+  #spec-content h4 { margin: 0; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .8125rem; text-transform: uppercase; letter-spacing: .06em; color: rgba(26,26,26,.75); }
+  #spec-content p, #spec-content li { margin: 0; font-family: "Inter", sans-serif; font-size: .9375rem; line-height: 1.7; color: rgba(26,26,26,.92); }
+  #spec-content ul, #spec-content ol { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: .375rem; }
+  #spec-content ul { list-style: square; }
+  #spec-content ol > li::marker { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  #spec-content strong { font-weight: 600; }
+  #spec-content a { color: #1a1a1a; text-decoration: underline; text-underline-offset: 3px; }
+  #spec-content a:hover { background: #ffcc00; }
+  #spec-content hr { width: 100%; margin: 0; border: 0; border-top: 2px solid #1a1a1a; }
+  #spec-content code { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: .8125em; background: #eee9e0; border: 1px solid #1a1a1a; padding: 0 .25rem; }
+  #spec-content mark { background: #ffcc00; border: 1px solid #1a1a1a; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; white-space: nowrap; }
+  #spec-content mark[data-tone="danger"] { background: #e63b2e; color: #ffffff; }
+  #spec-content mark[data-tone="info"] { background: #0055ff; color: #ffffff; }
+  #spec-content mark[data-tone="neutral"] { background: #eee9e0; }
+  #spec-content mark[data-tone="ink"] { background: #1a1a1a; color: #ffffff; }
+  #spec-content blockquote { margin: 0; border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content blockquote[data-tone="danger"] { background: #e63b2e; color: #ffffff; }
+  #spec-content blockquote[data-tone="warn"] { background: #ffcc00; }
+  #spec-content blockquote[data-tone="ink"] { background: #1a1a1a; color: #ffffff; }
+  #spec-content blockquote > p:first-child > strong:first-child,
+  #spec-content blockquote > strong:first-child { display: block; margin-bottom: .25rem; font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #spec-content .table-wrap { border: 2px solid #1a1a1a; background: #ffffff; overflow-x: auto; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content table { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif; font-size: .8125rem; text-align: left; }
+  #spec-content thead th { padding: .75rem; background: #1a1a1a; color: #ffffff; font-family: "Space_Grotesk", sans-serif; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+  #spec-content tbody td { padding: .75rem; border-top: 2px solid #1a1a1a; vertical-align: top; }
+  #spec-content tbody tr:hover { background: #f5f0e8; }
+  #spec-content tbody td:first-child { font-weight: 600; }
+  #spec-content pre { position: relative; margin: 0; padding: 1.25rem; overflow-x: auto; border: 2px solid #1a1a1a; background: #1a1a1a; color: #e2ddd4; box-shadow: 4px 4px 0 #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .8125rem; line-height: 1.6; }
+  #spec-content pre code { background: none; border: 0; padding: 0; font-size: inherit; font-weight: 400; color: inherit; }
+  #spec-content pre .copy-btn { position: absolute; top: .5rem; right: .5rem; border: 1px solid rgba(255,255,255,.25); background: #262626; color: #ffcc00; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; cursor: pointer; }
+  #spec-content pre .copy-btn:hover { background: #ffcc00; color: #1a1a1a; }
+  #spec-content figure { margin: 0; border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  #spec-content figcaption { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  #spec-content figure svg { width: 100%; height: auto; font-family: "JetBrains Mono", monospace; }
+  #spec-content figure ul { flex-direction: row; flex-wrap: wrap; gap: 1rem; margin-top: .75rem; padding: .5rem 0 0; border-top: 1px solid #1a1a1a; list-style: none; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  #spec-content figure ul li { display: flex; align-items: center; gap: .375rem; font-size: .75rem; }
+  #spec-content ul:has(> li > input[type="checkbox"]) { padding-left: 0; list-style: none; gap: .75rem; }
+  #spec-content li:has(> input[type="checkbox"]) { display: flex; align-items: flex-start; gap: .75rem; }
+  #spec-content input[type="checkbox"] { margin-top: .25rem; width: 1rem; height: 1rem; flex: none; accent-color: #1a1a1a; }
+  #spec-content .checklist-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+  #spec-content .checklist-head .count { background: #ffcc00; border: 1px solid #1a1a1a; padding: .125rem .625rem; }
+  /* --- Warstwa klas: LEGACY (utrzymana tylko dla dokumentow wygenerowanych wczesniej).
+     Nowe dokumenty nie uzywaja klas - patrz warstwa semantyczna powyzej. */
+  .card { border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  .card.tight { padding: 1rem; box-shadow: 3px 3px 0 #1a1a1a; }
+  .card.ink { background: #1a1a1a; color: #ffffff; }
+  .card.danger { background: #e63b2e; color: #ffffff; }
+  .card.warn { background: #ffcc00; color: #1a1a1a; }
+  .label { font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .label.out { color: rgba(26,26,26,.6); }
+  .title { font-family: "Space_Grotesk", sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: -.01em; }
+  .prose { font-family: "Inter", sans-serif; font-size: .9375rem; line-height: 1.7; color: rgba(26,26,26,.92); }
+  .prose strong { font-weight: 600; }
+  code.ic { font-family: "JetBrains Mono", monospace; font-weight: 700; background: #eee9e0; border: 1px solid #1a1a1a; padding: 0 .25rem; }
+  .grid-2 { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+  .grid-3 { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 768px) { .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .chip { display: inline-block; padding: .125rem .5rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 700; }
+  .chip.k { background: #1a1a1a; color: #ffffff; }
+  .chip.y { background: #ffcc00; color: #1a1a1a; border: 1px solid #1a1a1a; }
+  .chip.b { background: #0055ff; color: #ffffff; }
+  .chip.r { background: #e63b2e; color: #ffffff; }
+  .chip.n { background: #eee9e0; color: #1a1a1a; border: 1px solid #1a1a1a; }
+  .table-wrap { border: 2px solid #1a1a1a; background: #ffffff; overflow-x: auto; box-shadow: 4px 4px 0 #1a1a1a; }
+  .tbl { width: 100%; border-collapse: collapse; font-family: "Inter", sans-serif; font-size: .8125rem; text-align: left; }
+  .tbl thead th { background: #1a1a1a; color: #ffffff; font-family: "Space_Grotesk", sans-serif; font-weight: 700; text-transform: uppercase; font-size: .75rem; padding: .75rem; }
+  .tbl tbody td { padding: .75rem; border-top: 2px solid #1a1a1a; vertical-align: top; }
+  .tbl tbody tr:hover { background: #f5f0e8; }
+  .tbl td.k { font-weight: 600; }
+  .tbl td.v { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  .tbl td.n { font-family: "JetBrains Mono", monospace; font-size: .75rem; color: rgba(26,26,26,.75); }
+  .metric { font-family: "JetBrains Mono", monospace; font-size: 1.5rem; font-weight: 700; }
+  .codeblock { border: 2px solid #1a1a1a; background: #1a1a1a; color: #ffffff; box-shadow: 4px 4px 0 #1a1a1a; }
+  .cb-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .625rem 1rem; background: #262626; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .codeblock pre { margin: 0; padding: 1.25rem; overflow-x: auto; font-family: "JetBrains Mono", monospace; font-size: .8125rem; line-height: 1.6; color: #e2ddd4; }
+  .figure { border: 2px solid #1a1a1a; background: #ffffff; padding: 1.25rem; box-shadow: 4px 4px 0 #1a1a1a; }
+  .figure-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; margin-bottom: 1rem; border-bottom: 2px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .figure svg { width: 100%; height: auto; font-family: "JetBrains Mono", monospace; }
+  .figure .legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: .75rem; padding-top: .5rem; border-top: 1px solid #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .75rem; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1rem; }
+  .step { display: flex; gap: 1rem; }
+  .step .n { font-family: "JetBrains Mono", monospace; font-weight: 700; color: #0055ff; }
+  .checklist { display: flex; flex-direction: column; gap: .75rem; font-family: "Inter", sans-serif; font-size: .875rem; }
+  .checklist label { display: flex; gap: .75rem; align-items: flex-start; cursor: pointer; }
+  .checklist .sub { display: block; font-family: "JetBrains Mono", monospace; font-size: .75rem; color: rgba(26,26,26,.7); }
+  .check-item { margin-top: .25rem; width: 1rem; height: 1rem; accent-color: #1a1a1a; }
+  /* --- Komentarze: indykatory + dymek + licznik --- */
+  #sc-widget { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 60; }
+  #sc-widget button, #sc-bubble button, .sc-marker { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-family: inherit; border: 2px solid #1a1a1a; }
+  #sc-widget .material-symbols-outlined, #sc-bubble .material-symbols-outlined, .sc-marker .material-symbols-outlined { line-height: 1; }
+  #sc-count { height: 2.5rem; padding: 0 .75rem; gap: .375rem; background: #ffcc00; color: #1a1a1a; font-family: "JetBrains Mono", monospace; font-size: .875rem; font-weight: 700; box-shadow: 3px 3px 0 #1a1a1a; }
+  #sc-count:hover { background: #f5f0e8; }
+  #sc-count .material-symbols-outlined { font-size: 1.125rem; }
+  [hidden] { display: none !important; }
+  #sc-markers { position: absolute; top: 0; left: 0; width: 100%; height: 0; z-index: 55; pointer-events: none; }
+  .sc-marker { position: absolute; width: 1.5rem; height: 1.5rem; background: #ffcc00; color: #1a1a1a; box-shadow: 2px 2px 0 #1a1a1a; pointer-events: auto; }
+  .sc-marker:hover { background: #0055ff; color: #ffffff; }
+  .sc-marker .material-symbols-outlined { font-size: .9375rem; }
+  #sc-bubble { position: fixed; z-index: 65; width: min(24rem, calc(100vw - 2rem)); background: #ffffff; border: 2px solid #1a1a1a; box-shadow: 4px 4px 0 #1a1a1a; padding: .75rem; display: flex; flex-direction: column; gap: .625rem; }
+  .sc-bubble-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; border-bottom: 2px solid #1a1a1a; padding-bottom: .5rem; }
+  .sc-bubble-title { font-family: "JetBrains Mono", monospace; font-size: .6875rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  #sc-close { width: 1.75rem; height: 1.75rem; background: #eee9e0; color: #1a1a1a; border-width: 1.5px; }
+  #sc-close:hover { background: #1a1a1a; color: #ffffff; }
+  #sc-close .material-symbols-outlined { font-size: 1.125rem; }
+  #sc-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 5rem; border: 2px solid #1a1a1a; padding: .5rem .625rem; font-family: "Inter", sans-serif; font-size: .875rem; line-height: 1.375rem; color: #1a1a1a; background: #f5f0e8; }
+  #sc-input:focus { outline: 3px solid #0055ff; outline-offset: -3px; }
+  .sc-bubble-actions { display: flex; align-items: center; gap: .5rem; }
+  .sc-hint { flex: 1; font-family: "JetBrains Mono", monospace; font-size: .625rem; line-height: .875rem; text-transform: uppercase; letter-spacing: .04em; color: rgba(26,26,26,.6); }
+  #sc-save { width: 2.25rem; height: 2.25rem; background: #1a1a1a; color: #ffffff; }
+  #sc-save:hover { background: #0055ff; }
+  #sc-save .material-symbols-outlined { font-size: 1.25rem; }
+  #sc-delete { width: 2.25rem; height: 2.25rem; background: #e63b2e; color: #ffffff; }
+  #sc-delete:hover { background: #1a1a1a; }
+  #sc-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%); z-index: 70; max-width: calc(100vw - 2rem); background: #1a1a1a; color: #ffffff; border-left: 6px solid #ffcc00; padding: .625rem 1rem; font-family: "JetBrains Mono", monospace; font-size: .75rem; font-weight: 500; }
+  @media print { header, aside, [data-copy], #sc-widget, #sc-bubble, #sc-toast, #sc-markers { display: none !important; } .lg\:col-span-3 { display: none !important; } .lg\:col-span-9 { grid-column: span 12 / span 12 !important; } }
+</style>
+<script>
+  // 1. Indeks dokumentu + naglowki sekcji (kolorowy kwadrat, numer, linia) - budowane z sekcji.
+  const ACCENTS = ['#ffcc00', '#0055ff', '#e63b2e'];
+  const sections = Array.from(document.querySelectorAll('#spec-content section[id]'));
+  const toc = document.getElementById('toc-nav');
+  sections.forEach((section, index) => {
+    const h2 = section.querySelector('h2');
+    if (!h2) return;
+    // Numeracja zrodla ("1. Tytul") jest usuwana - numer generuje szablon, zeby nie bylo "01. 1. Tytul".
+    const rawTitle = h2.textContent;
+    const label = rawTitle.replace(/^\s*\d+\s*[.)]\s*/, '').trim();
+    if (label !== rawTitle.trim()) h2.textContent = label;
+    const number = String(index + 1).padStart(2, '0') + '.';
+
+    const head = document.createElement('div');
+    head.className = 'sec-head';
+    const dot = document.createElement('span');
+    dot.className = 'sec-dot';
+    dot.style.background = ACCENTS[index % ACCENTS.length];
+    const num = document.createElement('span');
+    num.className = 'sec-num';
+    num.textContent = number;
+
+    h2.parentNode.insertBefore(head, h2);
+    head.appendChild(dot);
+    head.appendChild(h2);
+    h2.insertBefore(num, h2.firstChild);
+
+    toc.insertAdjacentHTML('beforeend',
+      '<a class="toc-item" href="#' + section.id + '">' + number + ' ' + label + '</a>');
+  });
+
+  // 2. Podswietlanie aktywnej sekcji w indeksie.
+  const tocLinks = Array.from(document.querySelectorAll('.toc-item'));
+  function highlightCurrent() {
+    let current = '';
+    sections.forEach(section => {
+      if (window.scrollY >= section.offsetTop - 140) current = section.id;
+    });
+    tocLinks.forEach(link => link.classList.toggle('is-active', link.getAttribute('href') === '#' + current));
+  }
+  window.addEventListener('scroll', highlightCurrent);
+  highlightCurrent();
+
+  // 3. Normalizacja tresci: agent pisze czysty HTML, skrypt doklada to, co potrzebne wizualnie.
+  // 3a. Tabele w ramke z przewijaniem.
+  document.querySelectorAll('#spec-content table').forEach(table => {
+    const parent = table.parentElement;
+    if (parent && parent.classList.contains('table-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+
+  // 3b. Przycisk kopiowania w kazdym bloku kodu.
+  document.querySelectorAll('#spec-content pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy-btn';
+    btn.textContent = 'Kopiuj';
+    btn.addEventListener('click', () => {
+      try { navigator.clipboard.writeText(pre.innerText); } catch (error) { /* brak dostepu do schowka */ }
+      btn.textContent = 'Skopiowano!';
+      setTimeout(() => { btn.textContent = 'Kopiuj'; }, 2000);
+    });
+    pre.appendChild(btn);
+  });
+
+  // 4. Licznik listy kontrolnej: <ul> zawierajaca <li> z <input type="checkbox">.
+  const isTaskList = list => Array.from(list.children).some(item => item.querySelector('input[type="checkbox"]'));
+  document.querySelectorAll('#spec-content ul').forEach(list => {
+    if (!isTaskList(list)) return;
+    const boxes = Array.from(list.querySelectorAll('input[type="checkbox"]'));
+    const head = document.createElement('div');
+    head.className = 'checklist-head';
+    head.innerHTML = '<span>Lista kontrolna</span><span class="count"></span>';
+    const count = head.querySelector('.count');
+    const update = () => {
+      const checked = boxes.filter(box => box.checked).length;
+      count.textContent = checked + ' / ' + boxes.length + ' (' + Math.round((checked / boxes.length) * 100) + '%)';
+    };
+    boxes.forEach(box => box.addEventListener('change', update));
+    update();
+    list.parentNode.insertBefore(head, list);
+  });
+
+  // 5. Komentarze do specyfikacji - tryb staly: klik w dowolny element dokumentu otwiera dymek.
+  // Zapis w localStorage (klucz per plik) - komentarze nie wchodza do pliku HTML.
+  // Klik na licznik kopiuje caly zestaw jako JSON (z kontekstem: sekcja, selektor, cytat).
+  (function () {
+    const markers = document.getElementById('sc-markers');
+    const widget = document.getElementById('sc-widget');
+    if (!widget || !markers) return;
+
+    const countBtn = document.getElementById('sc-count');
+    const bubble = document.getElementById('sc-bubble');
+    const input = document.getElementById('sc-input');
+    const saveBtn = document.getElementById('sc-save');
+    const deleteBtn = document.getElementById('sc-delete');
+    const closeBtn = document.getElementById('sc-close');
+    const toast = document.getElementById('sc-toast');
+
+    const STORAGE_KEY = 'sw-spec-comments:' + location.pathname;
+    const CONTENT = document.getElementById('spec-content');
+    let comments = load();
+    let anchor = null;
+    let markerEls = [];
+    let toastTimer = null;
+
+    function load() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        return Array.isArray(raw) ? raw : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function store() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(comments));
+      } catch (error) {
+        // np. zablokowany localStorage na file:// - komentarze zostaja tylko w tej sesji
+      }
+      render();
+    }
+
+    function plural(count) {
+      if (count === 1) return 'komentarz';
+      const last = count % 10;
+      const teens = count % 100;
+      return last >= 2 && last <= 4 && (teens < 10 || teens >= 20) ? 'komentarze' : 'komentarzy';
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { toast.hidden = true; }, 2600);
+    }
+
+    function cssPath(element) {
+      const parts = [];
+      let node = element;
+      while (node && node !== document.body) {
+        if (node.id) {
+          parts.unshift(node.tagName.toLowerCase() + '#' + node.id);
+          break;
+        }
+        const parent = node.parentElement;
+        const index = parent ? Array.prototype.indexOf.call(parent.children, node) + 1 : 1;
+        parts.unshift(node.tagName.toLowerCase() + ':nth-child(' + index + ')');
+        node = parent;
+      }
+      return parts.join(' > ');
+    }
+
+    function describe(element) {
+      const section = element.closest('section[id]');
+      const heading = section ? section.querySelector('h2') : null;
+      const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+      return {
+        sectionId: section ? section.id : null,
+        sectionTitle: heading ? heading.textContent.replace(/^\s*\d+\.\s*/, '').trim() : null,
+        selector: cssPath(element),
+        tag: element.tagName.toLowerCase(),
+        text: text.slice(0, 240)
+      };
+    }
+
+    function findBySelector(selector) {
+      try { return document.querySelector(selector); } catch (error) { return null; }
+    }
+
+    // Indykatory w ukladzie dokumentu (absolute) - przewijanie nie wymaga przeliczania pozycji.
+    function positionMarkers() {
+      markerEls.forEach(function (marker) {
+        const target = findBySelector(marker.entry.selector);
+        if (!target) { marker.button.hidden = true; return; }
+        marker.button.hidden = false;
+        const rect = target.getBoundingClientRect();
+        marker.button.style.top = (rect.top + (window.scrollY || 0) - 10) + 'px';
+        marker.button.style.left = Math.max(0, rect.left + (window.scrollX || 0) + rect.width - 10) + 'px';
+      });
+    }
+
+    function render() {
+      countBtn.hidden = comments.length === 0;
+      countBtn.innerHTML = '<span class="material-symbols-outlined">forum</span><span>' + comments.length + '</span>';
+      countBtn.title = comments.length + ' ' + plural(comments.length) + ' — kliknij, aby skopiować JSON do schowka';
+
+      markers.innerHTML = '';
+      markerEls = comments.map(function (entry) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'sc-marker';
+        button.title = 'Komentarz — kliknij, aby edytować lub usunąć';
+        button.innerHTML = '<span class="material-symbols-outlined">chat_bubble</span>';
+        button.addEventListener('click', function (event) {
+          event.stopPropagation();
+          const target = findBySelector(entry.selector);
+          if (target) openFor(target);
+          else showToast('Nie znaleziono elementu dla tego komentarza');
+        });
+        markers.appendChild(button);
+        return { button: button, entry: entry };
+      });
+      positionMarkers();
+    }
+
+    function openFor(element) {
+      anchor = describe(element);
+      const existing = comments.find(function (entry) { return entry.selector === anchor.selector; });
+      input.value = existing ? existing.comment : '';
+      deleteBtn.hidden = !existing;
+      bubble.hidden = false;
+
+      const rect = element.getBoundingClientRect();
+      const box = bubble.getBoundingClientRect();
+      bubble.style.left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - box.width - 8)) + 'px';
+      bubble.style.top = (rect.bottom + box.height + 16 > window.innerHeight
+        ? Math.max(8, rect.top - box.height - 8)
+        : rect.bottom + 8) + 'px';
+      input.focus();
+    }
+
+    function close() {
+      bubble.hidden = true;
+      anchor = null;
+    }
+
+    function save() {
+      if (!anchor) return;
+      const text = input.value.trim();
+      if (!text) { close(); return; }
+      const existing = comments.find(function (entry) { return entry.selector === anchor.selector; });
+      const stamp = new Date().toISOString();
+      if (existing) {
+        existing.comment = text;
+        existing.updatedAt = stamp;
+      } else {
+        comments.push(Object.assign({ id: 'c' + Date.now().toString(36), comment: text, createdAt: stamp }, anchor));
+      }
+      store();
+      close();
+      showToast('Komentarz zapisany (' + comments.length + ')');
+    }
+
+    function remove() {
+      if (!anchor) return;
+      comments = comments.filter(function (entry) { return entry.selector !== anchor.selector; });
+      store();
+      close();
+      showToast('Komentarz usunięty (' + comments.length + ')');
+    }
+
+    function fallbackCopy(text) {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      let copied = false;
+      try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+      area.remove();
+      return copied;
+    }
+
+    function copyAll() {
+      if (!comments.length) return;
+      const sourceLink = document.querySelector('a[href$=".md"]');
+      const payload = {
+        spec: document.title,
+        source: sourceLink ? sourceLink.getAttribute('href') : null,
+        exportedAt: new Date().toISOString(),
+        count: comments.length,
+        comments: comments
+      };
+      const json = JSON.stringify(payload, null, 2);
+      const done = function (copied) {
+        showToast(copied
+          ? 'Skopiowano do schowka: ' + comments.length + ' ' + plural(comments.length) + ' (JSON)'
+          : 'Nie udało się skopiować — sprawdź uprawnienia schowka');
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(json).then(function () { done(true); }, function () { done(fallbackCopy(json)); });
+      } else {
+        done(fallbackCopy(json));
+      }
+    }
+
+    // Tryb komentarza jest staly - klik w tresc dokumentu otwiera dymek.
+    // Wyjatki: linki, przyciski i pola formularza dzialaja normalnie; zaznaczanie tekstu nie otwiera dymku.
+    document.addEventListener('click', function (event) {
+      const target = event.target;
+      if (!CONTENT || target.closest('#sc-widget, #sc-bubble, #sc-markers, #sc-toast')) return;
+      if (target.closest('a[href], button, input, label, select, textarea')) return;
+      if (window.getSelection && window.getSelection().toString()) return;
+      const element = target.closest('#spec-content *');
+      if (!element) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openFor(element);
+    }, true);
+
+    countBtn.addEventListener('click', copyAll);
+    saveBtn.addEventListener('click', save);
+    deleteBtn.addEventListener('click', remove);
+    closeBtn.addEventListener('click', close);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') { close(); return; }
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); save(); }
+    });
+    window.addEventListener('resize', positionMarkers);
+    window.addEventListener('load', positionMarkers);
+
+    render();
+    if (!comments.length) showToast('Kliknij dowolny element dokumentu, aby dodać komentarz');
+  }());
+</script>
+</body>
+</html>
