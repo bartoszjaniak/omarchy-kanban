@@ -4,8 +4,9 @@
 
 Dziś import z Todoist wymaga człowieka: AI w sesji woła
 `omarchy-kanban todoist candidates`, ocenia zadania i importuje wykonalne.
-Użytkownik chce, żeby działo się to samo, co 2 godziny, bez udziału człowieka —
-karty z zadaniami „do zrobienia przy komputerze" mają czekać na tablicy.
+Użytkownik chce, żeby działo się to samo co godzinę od 07:00 do 23:00, bez
+udziału człowieka — karty z zadaniami „do zrobienia przy komputerze" mają czekać
+na tablicy.
 
 Push/pull statusów (Core, pętla 60 s) działa już bez zmian. Ten dokument
 dodaje **wyłącznie** automatyczną decyzję o imporcie.
@@ -25,7 +26,8 @@ dodaje **wyłącznie** automatyczną decyzję o imporcie.
 Osobny składnik poza Core: **timer systemd użytkownika → skrypt orkiestrujący →
 model przez `opencode run` → CLI `omarchy-kanban todoist import`**.
 
-1. Timer `agent-kanban-todoist-import.timer` budzi usługę co 2 godziny.
+1. Timer `agent-kanban-todoist-import.timer` budzi usługę co godzinę w oknie
+   07:00–23:00 czasu lokalnego.
 2. Usługa `agent-kanban-todoist-import.service` (`Type=oneshot`) uruchamia
    `~/.local/bin/omarchy-kanban-todoist-import`.
 3. Skrypt sprawdza `omarchy-kanban todoist status --json`:
@@ -62,7 +64,7 @@ model przez `opencode run` → CLI `omarchy-kanban todoist import`**.
 ## 6. Architektura
 
 ```
-systemd user ──timer (co 2 h)──> agent-kanban-todoist-import.service (oneshot)
+systemd user ──timer (07:00–23:00, co godzinę)──> agent-kanban-todoist-import.service (oneshot)
                                         │
                                         ▼
                         ~/.local/bin/omarchy-kanban-todoist-import   (Python 3, stdlib)
@@ -294,7 +296,8 @@ Brak powiadomień desktopowych. Jedyny kanał: journald.
 - **Odporność** — `flock` + `TimeoutStartSec` + timeouty na każde wywołanie
   zewnętrzne; brak kumulacji po suspendzie (`Persistent=true` nadrabia jedno
   uruchomienie).
-- **Koszt** — 12 wywołań modelu dziennie, prompt ≤ 100 kandydatów × ~300 znaków.
+- **Koszt** — 17 planowych wywołań modelu dziennie (plus ewentualny catch-up),
+  prompt ≤ 100 kandydatów × ~300 znaków.
 - **Limity Todoist** — kilka żądań na cykl, daleko od 1000/15 min.
 - **Observability** — jedna linia podsumowania na cykl; podgląd
   `journalctl --user -u agent-kanban-todoist-import -n 50`.
@@ -325,12 +328,18 @@ w katalogu tymczasowym; realny model nie jest wołany.
 | 16 | `reason` nie trafia do argv `import` | asercja na argumenty stuba |
 | 17 | Wszystkie id odrzucone walidacją | brak `import`, exit 1, log powodów |
 | 18 | `last_error` w statusie, kandydaci OK | ostrzeżenie w logu, cykl kończy się importem |
-| 19 | Godzina lokalna poza 07:00–23:00 | exit 0 przed CLI/model; brak importu |
-| 20 | Timer aktywowany po starcie/wznowieniu po pominiętym ticku | jedno catch-up przez `Persistent=true`; bez kolejki zaległych |
+| 19 | `{"import":[]}` przy niepustych kandydatach | exit 0, zero importów, podsumowanie `import=0` |
+| 20 | `status` kończy się błędem i stderr | exit 1; ostatnia linia stderr w logu (max 200 znaków) |
+| 21 | `opencode` nie istnieje | exit 1, brak importu, log `brak polecenia` |
+| 22 | Godziny graniczne: 06:59, 07:00, 23:59, 00:00 | odpowiednio skip/run/run/skip |
+| 23 | Nocny catch-up | exit 0 przed CLI/model, log guarda |
+| 24 | Nocny proces ze stubami | zero wywołań CLI/model/import |
+| 25 | Dzienny proces kontrolny | guard nie pomija; CLI status zostaje wywołane |
 
 `tests/install_test.py`: shim `systemctl`/`loginctl` obejmuje `enable`, `restart`
 i `enable-linger`; asercje na treść `.timer` i `.service` oraz `chmod 0755`
-skryptu.
+skryptu. `Persistent=true` jest asercją konfiguracji; semantyka catch-up systemd
+jest potwierdzana operacyjnie po boot/resume, nie symulowana przez test procesu.
 
 Weryfikacja ręczna po instalacji: `omarchy-kanban-todoist-import --dry-run`,
 potem `journalctl --user -u agent-kanban-todoist-import -n 20`.
@@ -356,8 +365,9 @@ potem `journalctl --user -u agent-kanban-todoist-import -n 20`.
 - **Zadania cykliczne.** Kandydaci to `today | overdue`; zadanie cykliczne po
   zamknięciu wraca z nowym id i może wrócić na tablicę po imporcie. Świadome:
   karta w DONE nie jest duplikowana, ale ten sam tytuł może pojawić się drugi raz.
-- **Odrzucone zadania wracają do promptu co 2 h** — koszt tokenów, nie
-  poprawność. Główna motywacja przyszłego stanu „seen/skipped" w `meta`.
+- **Odrzucone zadania wracają do promptu co godzinę w aktywnym oknie** — koszt
+  tokenów, nie poprawność. Główna motywacja przyszłego stanu „seen/skipped" w
+  `meta`.
 - **Follow-up (świadomie poza zakresem):** trwały stan odrzuconych, powiadomienia,
   fallback między modelami, filtry per projekt, `is_recurring` w kandydatach.
 - Model domyślny można zmienić jedną linią w unicie; nie blokuje wdrożenia.

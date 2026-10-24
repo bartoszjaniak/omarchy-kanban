@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Process test of `todoist-autoimport.py` (§10, 18 cases) with stub CLIs.
+"""Process test of `todoist-autoimport.py` (§10 cases + nighttime guard) with stub CLIs.
 
 `KANBAN_BIN` and `OPENCODE_BIN` are replaced by throwaway stubs in a temp dir;
 no real model and no live service is touched. Each case gets its own temp dir
@@ -8,16 +8,38 @@ touches `/run/user`. Standard library only.
 
 Run: python3 tests/todoist_autoimport.py
 """
+import contextlib
+import datetime
 import fcntl
+import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "todoist-autoimport.py"
+
+
+def load_script():
+    """Import the production script without running `main()`."""
+    spec = importlib.util.spec_from_file_location("todoist_autoimport_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def tz_for_local_hour(hour):
+    """POSIX TZ string that puts the subprocess local time at `hour`.
+
+    Lets the nighttime guard be exercised at any real wall-clock moment.
+    """
+    utc = datetime.datetime.now(datetime.timezone.utc)
+    return f"XXX{utc.hour - hour}"
 
 # Stub `omarchy-kanban`: logs every argv, then answers a command. Behaviour is
 # driven by env (STUB_STATUS/STUB_CANDIDATES/STUB_IMPORT_*) so each case tweaks
@@ -502,6 +524,91 @@ def case_21():
         h.close()
 
 
+def case_22():
+    module = load_script()
+    boundaries = [
+        (datetime.datetime(2026, 3, 1, 6, 59, 59), False, "06:59:59"),
+        (datetime.datetime(2026, 3, 1, 7, 0, 0), True, "07:00:00"),
+        (datetime.datetime(2026, 3, 1, 23, 59, 59), True, "23:59:59"),
+        (datetime.datetime(2026, 3, 2, 0, 0, 0), False, "następny dzień 00:00:00"),
+    ]
+    for moment, expected, label in boundaries:
+        got = module.within_active_window(moment)
+        check(got is expected, f"{label}: oczekiwano {expected}, jest {got}")
+
+
+def case_23():
+    module = load_script()
+    fixed = datetime.datetime(2026, 3, 1, 3, 30, 0)
+
+    class _FixedDateTime:
+        @staticmethod
+        def now(tz=None):
+            return fixed
+
+    calls = []
+    saved_datetime = module.datetime
+    saved_cycle = module.cycle
+    saved_argv = sys.argv
+    had_bin = "KANBAN_BIN" in os.environ
+    saved_bin = os.environ.get("KANBAN_BIN")
+    module.datetime = types.SimpleNamespace(datetime=_FixedDateTime)
+    module.cycle = lambda *args, **kwargs: (calls.append(args), 0)[1]
+    sys.argv = [str(SCRIPT)]
+    os.environ["KANBAN_BIN"] = "/bin/false"
+    err, out = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            try:
+                module.main()
+                code = None
+            except SystemExit as exit_error:
+                code = exit_error.code
+        text = err.getvalue()
+        check(code == 0, f"oczekiwano exit 0, jest {code!r}; stderr={text!r}")
+        check("nighttime guard" in text, f"brak logu nocnego: {text!r}")
+        check(text.startswith("todoist-import: "), f"brak prefiksu logu: {text!r}")
+        check(calls == [], f"cycle wołany po nocy: {calls}")
+        check(out.getvalue() == "", f"stdout niepusty: {out.getvalue()!r}")
+    finally:
+        module.datetime = saved_datetime
+        module.cycle = saved_cycle
+        sys.argv = saved_argv
+        if had_bin:
+            os.environ["KANBAN_BIN"] = saved_bin
+        else:
+            os.environ.pop("KANBAN_BIN", None)
+
+
+def case_24():
+    h = Harness()
+    try:
+        h.set(TZ=tz_for_local_hour(3)).run()
+        check(h.code == 0, f"exit {h.code}, stderr={h.stderr!r}")
+        check("nighttime guard" in h.stderr, f"brak logu nocnego: {h.stderr!r}")
+        check(h.kanban_calls() == [], f"CLI wołane nocą: {h.kanban_calls()}")
+        check(h.opencode_calls() == [], f"model wołany nocą: {h.opencode_calls()}")
+        h.assert_log_lines()
+    finally:
+        h.close()
+
+
+def case_25():
+    h = Harness()
+    try:
+        h.set(
+            TZ=tz_for_local_hour(12),
+            STUB_STATUS=json.dumps(
+                {"enabled": False, "last_sync": None, "last_error": None, "linked": 0}
+            ),
+        ).run()
+        check(h.code == 0, f"exit {h.code}, stderr={h.stderr!r}")
+        check("nighttime guard" not in h.stderr, f"dzień pominięty: {h.stderr!r}")
+        check(h.kanban_calls() == [["todoist", "status", "--json"]], f"wołania: {h.kanban_calls()}")
+    finally:
+        h.close()
+
+
 CASES = [
     ("1 model wskazuje jednego z dwóch", case_01),
     ("2 id spoza kandydatów odrzucone", case_02),
@@ -524,6 +631,10 @@ CASES = [
     ("19 pusta lista import przy kandydatach", case_19),
     ("20 status kod != 0 ze stderr", case_20),
     ("21 opencode nie istnieje", case_21),
+    ("22 granice okna 07:00-23:59", case_22),
+    ("23 noc: exit 0 przed KANBAN_BIN", case_23),
+    ("24 noc: brak wołań CLI/modelu", case_24),
+    ("25 dzień: guard nie pomija", case_25),
 ]
 
 

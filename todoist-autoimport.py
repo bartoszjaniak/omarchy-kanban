@@ -13,6 +13,7 @@ Użycie:
     omarchy-kanban-todoist-import --dry-run  # pokaż decyzję modelu, nic nie importuj
 """
 import argparse
+import datetime
 import fcntl
 import json
 import os
@@ -26,6 +27,11 @@ DEFAULT_LIMIT = 10
 DEFAULT_MAX_CANDIDATES = 100
 DEFAULT_KANBAN = "omarchy-kanban"
 DEFAULT_OPENCODE = "opencode"
+
+# Okno aktywności (lokalny czas): 07:00–23:59. Chroni przed nocnym cyklem
+# nadrabiającym `Persistent=true` po starcie/wznowieniu (§8.1 pkt 1).
+ACTIVE_HOUR_FIRST = 7
+ACTIVE_HOUR_LAST = 23
 
 LOCK_NAME = "kanban-todoist-import.lock"
 DESCRIPTION_LIMIT = 300
@@ -65,6 +71,12 @@ class CycleError(Exception):
 def log(message):
     """Jedna linia logu na stderr z prefiksem journald-niezależnym."""
     print("todoist-import: " + message, file=sys.stderr)
+
+
+def within_active_window(now=None):
+    """Czy lokalna godzina mieści się w oknie 07:00–23:59 (włącznie)."""
+    moment = now or datetime.datetime.now()
+    return ACTIVE_HOUR_FIRST <= moment.hour <= ACTIVE_HOUR_LAST
 
 
 def int_env(name, default):
@@ -314,6 +326,10 @@ def main():
     )
     parser.add_argument("--dry-run", action="store_true", help="pokaż decyzję modelu bez importu")
     args = parser.parse_args()
+
+    if not within_active_window():
+        log("pominięto: poza lokalnym oknem 07:00-23:59 (nighttime guard)")
+        sys.exit(0)
 
     binary = os.environ.get("KANBAN_BIN", DEFAULT_KANBAN)
     opencode = os.environ.get("OPENCODE_BIN", DEFAULT_OPENCODE)

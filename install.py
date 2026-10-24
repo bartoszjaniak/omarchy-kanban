@@ -154,10 +154,10 @@ def install_todoist_autoimport(args, backups):
     ]))
     private_write(timer, "\n".join([
         "[Unit]",
-        "Description=Kanban: auto-import z Todoist co 2 godziny",
+        "Description=Kanban: auto-import z Todoist co godzinę (07:00\u201323:00)",
         "",
         "[Timer]",
-        "OnCalendar=*-*-* 00/2:05:00",
+        "OnCalendar=*-*-* 07..23:00:00",
         "Persistent=true",
         "AccuracySec=1min",
         "RandomizedDelaySec=5min",

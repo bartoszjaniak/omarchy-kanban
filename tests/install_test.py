@@ -161,7 +161,7 @@ for system in ("Linux", "Darwin"):
 
         timer = (user_units(home) / TIMER_UNIT).read_text()
         for needle in (
-            "OnCalendar=*-*-* 00/2:05:00",
+            "OnCalendar=*-*-* 07..23:00:00",
             "Persistent=true",
             "AccuracySec=1min",
             "RandomizedDelaySec=5min",

@@ -189,10 +189,10 @@ is cleared by the next successful one.
 ## AI auto-import (optional)
 
 The Core never imports on its own. A systemd user timer outside the Core does the
-judgement call every two hours:
+judgement call hourly from 07:00 through 23:00 in the machine's local time:
 
 ```
-agent-kanban-todoist-import.timer  (OnCalendar=*-*-* 00/2:05:00, Persistent=true)
+agent-kanban-todoist-import.timer  (OnCalendar=*-*-* 07..23:00:00, Persistent=true)
   └─ agent-kanban-todoist-import.service  (Type=oneshot, TimeoutStartSec=15min)
        └─ ~/.local/bin/omarchy-kanban-todoist-import
             ├─ omarchy-kanban todoist status --json      (skip when disabled)
@@ -215,6 +215,10 @@ The model's answer is treated as untrusted input:
 - duplicates collapse, unknown or malformed entries are rejected and logged,
 - the accepted list is capped (10 per cycle by default),
 - `reason` never reaches the Core or the card; it is only logged.
+
+If systemd catches up a missed run at night, the script exits before calling the
+CLI or model; the next scheduled run is 07:00. `Persistent=true` triggers one
+catch-up after a missed timer event, not a backlog of every missed hourly tick.
 
 Exit codes are meaningful for `systemctl --user status`: `0` for a normal cycle
 (nothing to do, integration off, or imports done), non-zero for a broken cycle
@@ -275,7 +279,7 @@ cargo fmt --check
 cargo build --release --locked
 
 python3 tests/todoist_e2e.py             # process test: import → close → reopen → pull (fake Todoist)
-python3 tests/todoist_autoimport.py      # 21 scenarios with stubbed CLI and model, no network
+python3 tests/todoist_autoimport.py      # 25 scenarios with stubbed CLI and model, no network
 python3 tests/install_test.py            # installer sandbox: units, timer, tokens, backups
 ```
 
