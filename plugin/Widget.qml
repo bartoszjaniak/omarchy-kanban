@@ -12,6 +12,8 @@ Panel {
   implicitHeight: button.implicitHeight
 
   property var tasks: []
+  property double clockNowMs: Date.now()
+  property bool hasFreshImport: false
   property var counts: ({ todo: 0, doing: 0, done: 0, archived: 0 })
   property bool connected: false
   property string error: ""
@@ -222,6 +224,17 @@ Panel {
   }
   function pickQuote() { quoteOfDay = quoteForDay(Math.floor(Date.now() / 86400000)) }
 
+  function taskIsFreshImport(task) {
+    var ageSeconds = Math.floor(clockNowMs / 1000) - task.created_at
+    return task.todoist_id != null && ageSeconds >= 0 && ageSeconds < 86400
+  }
+  function refreshFreshImports() {
+    clockNowMs = Date.now()
+    hasFreshImport = tasks.some(function(task) { return taskIsFreshImport(task) })
+  }
+
+  onTasksChanged: refreshFreshImports()
+
   function send(action) { if (backend.running) backend.write(JSON.stringify(action) + "\n") }
   function rank(status) { return status === "todo" ? 0 : status === "doing" ? 1 : status === "done" ? 2 : 3 }
   function statusColor(status) { return status === "todo" ? "#a9a9b2" : status === "doing" ? "#7aa2f7" : status === "done" ? "#9ece6a" : "#5c5c66" }
@@ -334,7 +347,8 @@ Panel {
   Timer { id: editorFocus; interval: 50; onTriggered: editTitle.forceActiveFocus() }
   // Refresh the quote when the day changes (checked hourly).
   Timer { interval: 3600000; running: true; repeat: true; onTriggered: root.pickQuote() }
-  Component.onCompleted: pickQuote()
+  Timer { interval: 60000; running: root.hasFreshImport; repeat: true; onTriggered: root.refreshFreshImports() }
+  Component.onCompleted: { pickQuote(); refreshFreshImports() }
 
   Process {
     id: backend
@@ -505,6 +519,21 @@ Panel {
                         anchors.top: parent.top
                         anchors.margins: Style.space(8)
                         spacing: Style.space(4)
+                        Rectangle {
+                          visible: root.taskIsFreshImport(card.modelData)
+                          width: newBadgeText.implicitWidth + Style.space(8)
+                          height: visible ? newBadgeText.implicitHeight + Style.space(4) : 0
+                          radius: Style.space(3)
+                          color: Qt.alpha("#7aa2f7", 0.18)
+                          Text {
+                            id: newBadgeText
+                            anchors.centerIn: parent
+                            text: "[NEW]"
+                            color: Color.foreground
+                            font.pixelSize: Style.space(9)
+                            font.bold: true
+                          }
+                        }
                         Text {
                           width: parent.width
                           text: card.modelData.title

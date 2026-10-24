@@ -280,6 +280,7 @@ cargo build --release --locked
 
 python3 tests/todoist_e2e.py             # process test: import → close → reopen → pull (fake Todoist)
 python3 tests/todoist_autoimport.py      # 25 scenarios with stubbed CLI and model, no network
+python3 tests/todoist_badge.py           # freshness predicate from QML, executed in Node
 python3 tests/install_test.py            # installer sandbox: units, timer, tokens, backups
 ```
 

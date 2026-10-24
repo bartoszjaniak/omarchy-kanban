@@ -59,10 +59,12 @@ Zmiana ograniczona do `plugin/Widget.qml`:
 - Tekst badge’a: dokładnie `[NEW]`.
 - Pozycja: osobny, krótki wiersz przed tytułem w istniejącym `contentColumn`.
 - Mały rozmiar zgodny z typografią widgetu (`Style.space()`), kompaktowe tło i
-  zaokrąglenie. Użyć istniejącego niebieskiego akcentu `#7aa2f7`; nie używać
-  koloru statusu karty ani nie zmieniać paska statusu.
+  zaokrąglenie. Użyć istniejącego niebieskiego akcentu `#7aa2f7` jako delikatnego
+  tła, a `Color.foreground` jako tekstu dla kontrastu w ciemnym i jasnym motywie;
+  nie używać koloru statusu karty ani nie zmieniać paska statusu.
 - Tekst badge’a niesie informację niezależnie od koloru; bez animacji, kliknięcia,
   licznika ani dodatkowej akcji.
+- Zachować kontrast tekstu co najmniej 4.5:1.
 - Nie zmieniać treści karty w edytorze ani zachowania drag-and-drop.
 
 ### Formuła ważności
@@ -100,7 +102,10 @@ utworzenia leżącej w przyszłości.
 5. Przeniesienie świeżej karty do In Progress lub DONE nie ukrywa badge’a.
 6. Upływ 24 h i następny minutowy tick ukrywa badge bez odświeżania Core.
 7. Tytuł/notatka, paska statusu i drag-and-drop zachowują dotychczasowe działanie.
-8. `qmllint` (jeśli jest zainstalowany) oraz wizualna kontrola widgetu po instalacji.
+8. `python3 tests/todoist_badge.py` uruchamia dokładne ciało QML helpera w Node i
+   sprawdza granice; `qmllint` (jeśli jest zainstalowany) oraz wizualna kontrola
+   widgetu po instalacji sprawdzają składnię i render (test Node nie zastępuje
+   testu runtime/layoutu QML).
 
 ## 11. Decyzje użytkownika
 

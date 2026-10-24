@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -29,39 +31,38 @@
   <main class="lg:col-span-9 p-6 md:p-10 lg:p-12 bg-[#f5f0e8]" id="spec-content">
     <section class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 md:p-8 shadow-[4px_4px_0px_#1a1a1a]">
       <h1 class="font-['Space_Grotesk'] text-2xl md:text-4xl font-bold tracking-tight mb-4 leading-tight">Todoist [NEW] badge</h1>
-      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Latwo rozpoznac swiezo zaimportowane karty Todoist na tablicy bez zmiany ich tytulow ani notatek. Badge [NEW] jest widoczny przez 24 godziny od importu.</p>
+      <p class="font-['Inter'] text-base md:text-lg leading-relaxed text-[#1a1a1a]/90 max-w-4xl">Łatwo rozpoznać świeżo zaimportowane karty Todoist na tablicy bez zmiany ich tytułów ani notatek. Badge [NEW] wygasający po 24 godzinach od importu.</p>
     </section>
 
-<section id="cel-i-uzasadnienie">
+    <section id="cel-i-uzasadnienie">
   <h2>Cel i uzasadnienie</h2>
-  <p>Latwo rozpoznac swiezo zaimportowane karty Todoist na tablicy bez zmiany ich tytulow ani notatek. Badge <code>[NEW]</code> ma byc widoczny przez 24 godziny od importu.</p>
+  <p>Łatwo rozpoznać świeżo zaimportowane karty Todoist na tablicy bez zmiany ich tytułów ani notatek. Badge <code>[NEW]</code> ma być widoczny przez 24 godziny od importu.</p>
 </section>
 
 <section id="opis-problemu">
   <h2>Opis problemu</h2>
-  <p>Zaimportowana karta wyglada tak samo jak pozostale. Uzytkownik nie widzi od razu, ktore zadania pojawily sie niedawno dzieki integracji.</p>
+  <p>Zaimportowana karta wygląda tak samo jak pozostałe. Użytkownik nie widzi od razu, które zadania pojawiły się niedawno dzięki integracji.</p>
 </section>
 
 <section id="przyjete-rozwiazanie">
-  <h2>Przyjete rozwiazanie</h2>
-  <p>Widget rysuje maly, nieinteraktywny badge <code>[NEW]</code> na karcie pochodzacej z Todoist, jesli od jej utworzenia minelo mniej niz 24 godziny.</p>
+  <h2>Przyjęte rozwiązanie</h2>
   <ul>
     <li>Rozpoznanie karty: <code>todoist_id != null</code>.</li>
-    <li>Czas rozpoczecia: istniejace <code>created_at</code> (epoch w sekundach), ustawiane przy utworzeniu/importowaniu karty.</li>
-    <li>Waznosc: <code>0 &lt;= now - created_at &lt; 86400</code> sekund.</li>
-    <li>Dziala w kazdej widocznej kolumnie TODO, In Progress i DONE; ruch karty nie resetuje ani nie konczy okresu.</li>
-    <li>Karty starsze niz 24 h nie maja badge&rsquo;a. Istniejaca karta Todoist mlodsza niz 24 h w chwili aktualizacji widgetu rowniez go pokaze.</li>
-    <li>Badge znika przy najblizszym odswiezeniu czasu w widgetcie (maksymalnie okolo minute po uplywie 24 h). Nie ma akcji recznego ukrywania.</li>
+    <li>Czas rozpoczęcia: istniejące <code>created_at</code> (epoch w sekundach), ustawiane przy utworzeniu/importowaniu karty.</li>
+    <li>Ważność: <code>0 &lt;= now - created_at &lt; 86400</code> sekund.</li>
+    <li>Działa w każdej widocznej kolumnie TODO, In Progress i DONE; ruch karty nie resetuje ani nie kończy okresu.</li>
+    <li>Karty starsze niż 24 h nie mają badge'a. Istniejąca karta Todoist młodsza niż 24 h w chwili aktualizacji widgetu również go pokaże.</li>
+    <li>Badge znika przy najbliższym odświeżeniu czasu w widgetcie (maksymalnie około minutę po upływie 24 h). Nie ma akcji ręcznego ukrywania.</li>
   </ul>
 </section>
 
-<section id="rozwazane-strategie">
-  <h2>Rozwazane strategie implementacji (bez kodu)</h2>
+<section id="rozwazane-strategie-implementacji">
+  <h2>Rozważane strategie implementacji (bez kodu)</h2>
   <table>
     <thead><tr><th>Wariant</th><th>Ocena</th></tr></thead>
     <tbody>
-      <tr><td>Osobna kolumna <code>imported_at</code> i migracja SQLite</td><td>Odrzucony: <code>created_at</code> juz oznacza moment utworzenia karty i wystarcza dla importu.</td></tr>
-      <tr><td>Prefiks <code>[NEW]</code> w tytule lub notatce</td><td>Odrzucony: zmienia dane uzytkownika i moglby byc synchronizowany/edytowany jako tresc.</td></tr>
+      <tr><td>Osobna kolumna <code>imported_at</code> i migracja SQLite</td><td>Odrzucony: <code>created_at</code> już oznacza moment utworzenia karty i wystarcza dla importu.</td></tr>
+      <tr><td>Prefiks <code>[NEW]</code> w tytule lub notatce</td><td>Odrzucony: zmienia dane użytkownika i mógłby być synchronizowany/edytowany jako treść.</td></tr>
       <tr><td>Badge w QML wyliczany z <code>todoist_id</code> i <code>created_at</code></td><td>Wybrany: bez zmian API, bazy, CLI i kontraktu synchronizacji.</td></tr>
     </tbody>
   </table>
@@ -70,8 +71,8 @@
 <section id="wzorce-architektoniczne">
   <h2>Wzorce architektoniczne</h2>
   <ul>
-    <li><strong>Dane pochodne w warstwie prezentacji</strong> &mdash; badge nie jest zapisywany; widget wylicza go z pol karty.</li>
-    <li><strong>Jedno zrodlo prawdy</strong> &mdash; <code>created_at</code> i <code>todoist_id</code> z Core, bez drugiego stanu &bdquo;seen/dismissed&rdquo;.</li>
+    <li><strong>Dane pochodne w warstwie prezentacji</strong> — badge nie jest zapisywany; widget wylicza go z pól karty.</li>
+    <li><strong>Jedno źródło prawdy</strong> — <code>created_at</code> i <code>todoist_id</code> z Core, bez drugiego stanu "seen/dismissed".</li>
   </ul>
 </section>
 
@@ -79,86 +80,38 @@
   <h2>Architektura</h2>
   <p>Zmiana ograniczona do <code>plugin/Widget.qml</code>:</p>
   <ol>
-    <li><strong>Wspoldzielony zegar widgetu</strong> &mdash; aktualizowany raz na minute, gdy istnieje swieza karta Todoist; zatrzymany, gdy nie ma zadnej.</li>
-    <li><strong>Badge <code>[NEW]</code></strong> &mdash; jako maly wiersz metadanych w karcie, przed tytulem. Tytul i notatka pozostaja bez zmian.</li>
-    <li><strong>Widocznosc</strong> &mdash; zalezna od <code>todoist_id</code>, <code>created_at</code> i zegara. Karty lokalne bez <code>todoist_id</code> nigdy nie dostaja badge&rsquo;a.</li>
+    <li>Współdzielony zegar widgetu aktualizowany raz na minutę, gdy istnieje świeża karta Todoist; zatrzymany, gdy nie ma żadnej.</li>
+    <li>Badge <code>[NEW]</code> jako mały wiersz metadanych w karcie, przed tytułem. Tytuł i notatka pozostają bez zmian.</li>
+    <li>Widoczność zależna od <code>todoist_id</code>, <code>created_at</code> i zegara. Karty lokalne bez <code>todoist_id</code> nigdy nie dostają badge'a.</li>
   </ol>
 </section>
 
 <section id="interfejs">
   <h2>Interfejs</h2>
+
   <h3>Widok karty</h3>
   <ul>
-    <li>Tekst badge&rsquo;a: dokladnie <code>[NEW]</code>.</li>
-    <li>Pozycja: osobny, krotki wiersz przed tytulem w istniejacym <code>contentColumn</code>.</li>
-    <li>Maly rozmiar zgodny z typografia widgetu (<code>Style.space()</code>), kompaktowe tlo i zaokraglenie. Uzyc istniejacego niebieskiego akcentu <code>#7aa2f7</code>; nie uzywac koloru statusu karty ani nie zmieniac paska statusu.</li>
-    <li>Tekst badge&rsquo;a niesie informacje niezaleznie od koloru; bez animacji, klikniecia, licznika ani dodatkowej akcji.</li>
-    <li>Nie zmieniac tresci karty w edytorze ani zachowania drag-and-drop.</li>
+    <li>Tekst badge'a: dokładnie <code>[NEW]</code>.</li>
+    <li>Pozycja: osobny, krótki wiersz przed tytułem w istniejącym <code>contentColumn</code>.</li>
+    <li>Mały rozmiar zgodny z typografią widgetu (<code>Style.space()</code>), kompaktowe tło i zaokrąglenie. Użyć istniejącego niebieskiego akcentu <code>#7aa2f7</code> jako delikatnego tła, a <code>Color.foreground</code> jako tekstu dla kontrastu w ciemnym i jasnym motywie; nie używać koloru statusu karty ani nie zmieniać paska statusu.</li>
+    <li>Tekst badge'a niesie informację niezależnie od koloru; bez animacji, kliknięcia, licznika ani dodatkowej akcji.</li>
+    <li>Zachować kontrast tekstu co najmniej 4.5:1.</li>
+    <li>Nie zmieniać treści karty w edytorze ani zachowania drag-and-drop.</li>
   </ul>
 
-  <h3>Formula waznosci</h3>
+  <h3>Formuła ważności</h3>
   <pre><code>ageSeconds = floor(nowMs / 1000) - task.created_at</code></pre>
   <p>Badge widoczny, gdy <code>task.todoist_id</code> istnieje i <code>0 &lt;= ageSeconds &lt; 24 * 60 * 60</code>.</p>
-  <p><code>nowMs</code> odswieza sie co 60 sekund tylko wtedy, gdy co najmniej jedna karta ma badge. Przesuniecie czasu systemowego wstecz nie pokazuje badge&rsquo;a dla daty utworzenia lezacej w przyszlosci.</p>
+  <p><code>nowMs</code> odświeża się co 60 sekund tylko wtedy, gdy co najmniej jedna karta ma badge. Przesunięcie czasu systemowego wstecz nie pokazuje badge'a dla daty utworzenia leżącej w przyszłości.</p>
 </section>
 
 <section id="przeplyw-danych">
-  <h2>Przeplyw danych</h2>
-  <figure>
-    <figcaption>Przeplyw danych: Core &rarr; Widget</figcaption>
-    <svg viewBox="0 0 600 200" role="img" style="min-width:560px">
-      <defs>
-        <pattern id="bh-g-1" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path d="M 20 0 L 0 0 0 20" fill="none" opacity="0.15" stroke="#1a1a1a" stroke-dasharray="2,4" stroke-width="0.3"></path>
-        </pattern>
-        <marker id="bh-a-1" markerWidth="6" markerHeight="6" orient="auto-start-reverse" refX="6" refY="5" viewBox="0 0 10 10">
-          <path d="M 0 1 L 10 5 L 0 9 z" fill="#1a1a1a"></path>
-        </marker>
-      </defs>
-      <rect width="600" height="200" fill="#f5f0e8" stroke="#1a1a1a" stroke-width="2"></rect>
-      <rect width="600" height="200" fill="url(#bh-g-1)"></rect>
-
-      <g transform="translate(20, 30)">
-        <rect width="160" height="100" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="160" height="24" fill="#1a1a1a"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">01 // CORE</text>
-        <text x="12" y="48" fill="#1a1a1a" font-size="9">Zwraca istniejące pola</text>
-        <text x="12" y="66" fill="#1a1a1a" font-size="9"><tspan font-weight="bold">todoist_id</tspan> i <tspan font-weight="bold">created_at</tspan></text>
-        <text x="12" y="84" fill="#1a1a1a" font-size="9">w stanie tablicy.</text>
-      </g>
-
-      <path d="M 185 80 L 245 80" stroke="#1a1a1a" stroke-width="2.5" marker-end="url(#bh-a-1)"></path>
-
-      <g transform="translate(250, 30)">
-        <rect width="160" height="100" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="160" height="24" fill="#0055ff"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">02 // WIDGET</text>
-        <text x="12" y="48" fill="#1a1a1a" font-size="9">Wylicza wiek karty</text>
-        <text x="12" y="66" fill="#1a1a1a" font-size="9">i widoczno�� <tspan font-weight="bold">[NEW]</tspan></text>
-        <text x="12" y="84" fill="#1a1a1a" font-size="9">Nie zapisuje zmian.</text>
-      </g>
-
-      <path d="M 335 130 L 335 165 L 100 165 L 100 135" stroke="#1a1a1a" stroke-width="2" fill="none" stroke-dasharray="4,3" marker-end="url(#bh-a-1)"></path>
-      <text x="175" y="156" fill="#1a1a1a" font-size="8">kolejny tick (24h)</text>
-
-      <g transform="translate(20, 150)">
-        <rect width="160" height="36" fill="#ffffff" stroke="#1a1a1a" stroke-width="2"></rect>
-        <rect width="160" height="24" fill="#e63b2e"></rect>
-        <text x="10" y="16" fill="#ffffff" font-size="9" font-weight="bold">03 // BADGE UKRYTY</text>
-      </g>
-    </svg>
-    <ul>
-      <li><span style="width:.75rem;height:.75rem;background:#ffffff;border:1px solid #1a1a1a"></span>Stan z Core</li>
-      <li><span style="width:.75rem;height:.75rem;background:#0055ff;border:1px solid #1a1a1a"></span>Widok widgetu</li>
-      <li><span style="width:.75rem;height:.75rem;background:#e63b2e;border:1px solid #1a1a1a"></span>Stan po 24h</li>
-    </ul>
-  </figure>
-
+  <h2>Przepływ danych</h2>
   <ol>
-    <li>Core zwraca istniejace pola <code>todoist_id</code> i <code>created_at</code> w stanie tablicy.</li>
-    <li>Widget wylicza wiek karty i widocznosc <code>[NEW]</code>; nie zapisuje zmian.</li>
+    <li>Core zwraca istniejące pola <code>todoist_id</code> i <code>created_at</code> w stanie tablicy.</li>
+    <li>Widget wylicza wiek karty i widoczność <code>[NEW]</code>; nie zapisuje zmian.</li>
     <li>Po 24 godzinach kolejny tick zegara ukrywa badge.</li>
-    <li>Kolejne cykle sync nie zmieniaja czasu utworzenia karty, wiec nie odswiezaja badge&rsquo;a.</li>
+    <li>Kolejne cykle sync nie zmieniają czasu utworzenia karty, więc nie odświeżają badge'a.</li>
   </ol>
 </section>
 
@@ -166,43 +119,43 @@
   <h2>Wymagania niefunkcjonalne</h2>
   <ul>
     <li>Bez zmian SQLite, HTTP API, Rust, CLI, importu ani synchronizacji Todoist.</li>
-    <li>Bez nowych zaleznosci.</li>
-    <li>Zegar pracuje tylko, gdy istnieje swieza karta, i nie wykonuje zadan sieciowych.</li>
-    <li>Badge nie przeslania tytulu/notatki i nie zmienia statusu ani kolejnoci kart.</li>
+    <li>Bez nowych zależności.</li>
+    <li>Zegar pracuje tylko, gdy istnieje świeża karta, i nie wykonuje żądań sieciowych.</li>
+    <li>Badge nie przesłania tytułu/notatki i nie zmienia statusu ani kolejności kart.</li>
   </ul>
 </section>
 
 <section id="strategia-testowania">
   <h2>Strategia testowania i przypadki testowe</h2>
-  <ul>
-    <li><input type="checkbox" checked/>Karta Todoist utworzona przed 24 h &rarr; badge <code>[NEW]</code> widoczny.</li>
-    <li><input type="checkbox" checked/>Karta Todoist utworzona dokladnie 24 h temu &rarr; badge ukryty.</li>
-    <li><input type="checkbox" checked/>Karta Todoist utworzona w przyszosci &rarr; badge ukryty.</li>
-    <li><input type="checkbox" checked/>Karta lokalna (<code>todoist_id = null</code>) utworzona przed chwila &rarr; badge ukryty.</li>
-    <li><input type="checkbox" checked/>Przeniesienie swiezej karty do In Progress lub DONE nie ukrywa badge&rsquo;a.</li>
-    <li><input type="checkbox" checked/>Upyw 24 h i nastpny minutowy tick ukrywa badge bez odswiezania Core.</li>
-    <li><input type="checkbox" checked/>Tytul/notatka, paska statusu i drag-and-drop zachowuja dotychczasowe dzialanie.</li>
-    <li><input type="checkbox" checked/><code>qmllint</code> (jesli jest zainstalowany) oraz wizualna kontrola widgetu po instalacji.</li>
-  </ul>
+  <ol>
+    <li>Karta Todoist utworzona przed 24 h → badge <code>[NEW]</code> widoczny.</li>
+    <li>Karta Todoist utworzona dokładnie 24 h temu → badge ukryty.</li>
+    <li>Karta Todoist utworzona w przyszłości → badge ukryty.</li>
+    <li>Karta lokalna (<code>todoist_id = null</code>) utworzona przed chwilą → badge ukryty.</li>
+    <li>Przeniesienie świeżej karty do In Progress lub DONE nie ukrywa badge'a.</li>
+    <li>Upływ 24 h i następny minutowy tick ukrywa badge bez odświeżania Core.</li>
+    <li>Tytuł/notatka, pasek statusu i drag-and-drop zachowują dotychczasowe działanie.</li>
+  </ol>
+  <blockquote data-tone="warn"><strong>Uwaga</strong><p><code>python3 tests/todoist_badge.py</code> uruchamia dokładne ciało QML helpera w Node i sprawdza granice; <code>qmllint</code> (jeśli jest zainstalowany) oraz wizualna kontrola widgetu po instalacji sprawdzają składnię i render. Test Node nie zastępuje testu runtime/layoutu QML.</p></blockquote>
 </section>
 
 <section id="decyzje-uzytkownika">
-  <h2>Decyzje uytkownika</h2>
+  <h2>Decyzje użytkownika</h2>
   <ol>
-    <li>Uzyc malego badge&rsquo;a w UI, bez zmiany tytulu ani notatki.</li>
-    <li>Badge ma wygasnac 24 godziny od pojawienia sie.</li>
-    <li>Badge dotyczy kart zaimportowanych z Todoist; jego czas liczymy od utworzenia karty. Widocznosc obejmuje wszystkie kolumny, a nie tylko TODO.</li>
+    <li>Użyć małego badge'a w UI, bez zmiany tytułu ani notatki.</li>
+    <li>Badge ma wygasnąć 24 godziny od pojawienia się.</li>
+    <li>Badge dotyczy kart zaimportowanych z Todoist; jego czas liczymy od utworzenia karty. Widoczność obejmuje wszystkie kolumny, a nie tylko TODO.</li>
   </ol>
 </section>
 
 <section id="otwarte-pytania">
   <h2>Otwarte pytania i decyzje</h2>
-  <p>Brak otwartych pytan.</p>
+  <p>Brak otwartych pytań.</p>
 </section>
 
-<section id="runda-recenzji">
-  <h2>Runda recenzji: 1</h2>
-  <p>Wstepne rekomendacje UX/UI Rady uwzgledniono w &sect;7 i &sect;10: badge ma byc tekstowy, nieinteraktywny, krotki, uzywac istniejacego akcentu i nie modyfikowac danych.</p>
+<section id="konsultacja-wstepna-rady">
+  <h2>Konsultacja wstępna Rady</h2>
+  <p>Wstępne rekomendacje UX/UI Rady uwzględniono w §7 i §10: badge ma być tekstowy, nieinteraktywny, krótki, używać istniejącego akcentu i nie modyfikować danych. Ponowna recenzja draftu nie powiodła się z powodu limitu kredytów dostępnych dla podagentów; implementacja czeka na akceptację specyfikacji przez użytkownika.</p>
 </section>
 
     <footer class="border-2 border-[#1a1a1a] bg-[#ffffff] p-6 shadow-[4px_4px_0px_#1a1a1a] flex flex-wrap items-center justify-between gap-4 font-['Space_Grotesk']">
