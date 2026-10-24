@@ -193,10 +193,10 @@ UMask=0077
 
 # agent-kanban-todoist-import.timer
 [Unit]
-Description=Kanban: auto-import z Todoist co 2 godziny
+Description=Kanban: auto-import z Todoist co godzinę (07:00–23:00)
 
 [Timer]
-OnCalendar=*-*-* 00/2:05:00
+OnCalendar=*-*-* 07..23:00:00
 Persistent=true
 AccuracySec=1min
 RandomizedDelaySec=5min
@@ -213,6 +213,12 @@ WantedBy=timers.target
   jedynym działającym limitem czasu: `RuntimeMaxSec` systemd ignoruje dla
   `Type=oneshot` (ostrzeżenie w `systemd-analyze verify`).
 - Token Todoist **nie** trafia do tych jednostek.
+- Timer uruchamia cykl o pełnych godzinach lokalnego czasu od 07:00 do 23:00
+  (włącznie); między 00:00 a 06:59 nie ma planowych uruchomień.
+- `Persistent=true` nadrabia **jedno** pominięte uruchomienie, gdy timer zostaje
+  aktywowany po starcie komputera lub wznowieniu. Jeśli to nastąpi w porze nocnej,
+  skrypt pomija cykl i następne uruchomienie następuje o 07:00. Nie tworzy się
+  kolejka zaległych wywołań.
 
 ### 7.5 Instalacja (`install.py`)
 
@@ -233,22 +239,24 @@ Drop-in `10-todoist.conf` (token) jest osobnym plikiem i przeżywa reinstalację
 
 ## 8. Przepływy danych
 
-### 8.1 Cykl (co 2 h)
+### 8.1 Cykl (co godzinę, 07:00–23:00)
 
-1. `flock -n` na `$XDG_RUNTIME_DIR/kanban-todoist-import.lock`; gdy zmienna
+1. Poza lokalnym oknem 07:00–23:00 zaloguj pominięcie i wyjdź 0 (chroni przed
+   nocnym uruchomieniem nadrabiającym po starcie/wznowieniu).
+2. `flock -n` na `$XDG_RUNTIME_DIR/kanban-todoist-import.lock`; gdy zmienna
    pusta — `/run/user/<uid>`, a gdy katalog niedostępny — katalog tymczasowy.
    Zajęty → log „poprzedni cykl trwa", exit 0.
-2. `todoist status --json` (timeout 30 s). `enabled=false` → log, exit 0.
+3. `todoist status --json` (timeout 30 s). `enabled=false` → log, exit 0.
    `last_error` → log ostrzeżenia, kontynuuj.
-3. `candidates --json` (timeout 30 s). Pusto → log, exit 0 bez wołania modelu.
-4. Prompt (maks. `KANBAN_IMPORT_MAX_CANDIDATES` zadań; nadmiar → log
+4. `candidates --json` (timeout 30 s). Pusto → log, exit 0 bez wołania modelu.
+5. Prompt (maks. `KANBAN_IMPORT_MAX_CANDIDATES` zadań; nadmiar → log
    `kandydaci=N do_promptu=M`) → `timeout 180 opencode run --standalone
    --model <model> <prompt>`. Błąd/timeout → log, exit 1.
-5. Parsowanie i walidacja (§7.3). Zero poprawnych id przy niepustej odpowiedzi
+6. Parsowanie i walidacja (§7.3). Zero poprawnych id przy niepustej odpowiedzi
    modelu → log, exit 1; `import: []` → log, exit 0.
-6. `--dry-run`: wypisz decyzję, exit 0, bez importu.
-7. `import <id>…` (timeout 120 s, jedno wywołanie). Wynik CLI logowany.
-8. Podsumowanie w jednej linii:
+7. `--dry-run`: wypisz decyzję, exit 0, bez importu.
+8. `import <id>…` (timeout 120 s, jedno wywołanie). Wynik CLI logowany.
+9. Podsumowanie w jednej linii:
    `todoist-import: cykl kandydaci=N do_promptu=M import=K odrzucone=J`.
 
 Każda linia logu ma prefiks `todoist-import:` (journald dodaje jeszcze
@@ -317,6 +325,8 @@ w katalogu tymczasowym; realny model nie jest wołany.
 | 16 | `reason` nie trafia do argv `import` | asercja na argumenty stuba |
 | 17 | Wszystkie id odrzucone walidacją | brak `import`, exit 1, log powodów |
 | 18 | `last_error` w statusie, kandydaci OK | ostrzeżenie w logu, cykl kończy się importem |
+| 19 | Godzina lokalna poza 07:00–23:00 | exit 0 przed CLI/model; brak importu |
+| 20 | Timer aktywowany po starcie/wznowieniu po pominiętym ticku | jedno catch-up przez `Persistent=true`; bez kolejki zaległych |
 
 `tests/install_test.py`: shim `systemctl`/`loginctl` obejmuje `enable`, `restart`
 i `enable-linger`; asercje na treść `.timer` i `.service` oraz `chmod 0755`
@@ -327,12 +337,15 @@ potem `journalctl --user -u agent-kanban-todoist-import -n 20`.
 
 ## 11. Decyzje użytkownika
 
-1. Auto-import ma działać **co 2 godziny** (nie raz dziennie).
-2. Przy błędzie **bez powiadomień** — tylko log w journald.
-3. Model konfigurowalny; domyślnie darmowy z opencode, bo `typesafe/jev-router`
+1. Auto-import ma działać **co godzinę od 07:00 do 23:00 lokalnego czasu**;
+   w nocy nie wykonuje cykli.
+2. Po starcie/wznowieniu timer ma jednorazowo nadrobić pominięty cykl
+   (`Persistent=true`), bez nadrabiania wielu pominiętych ticków.
+3. Przy błędzie **bez powiadomień** — tylko log w journald.
+4. Model konfigurowalny; domyślnie darmowy z opencode, bo `typesafe/jev-router`
    z OpenRouter nie ma aktywnych endpointów (sprawdzone: `endpoints: []`,
    `~typesafe/jev-latest` nie istnieje w tej instalacji opencode).
-4. Decyzja o imporcie pozostaje poza Core (skrypt + timer), zgodnie z decyzją
+5. Decyzja o imporcie pozostaje poza Core (skrypt + timer), zgodnie z decyzją
    ze specyfikacji sync.
 
 ## 12. Otwarte pytania i decyzje
